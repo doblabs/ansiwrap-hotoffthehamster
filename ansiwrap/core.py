@@ -16,6 +16,8 @@ except ImportError:
     a_textwrap = imp.load_module('a_textwrap', *imp.find_module('textwrap3'))
 else:
     a_textwrap = importlib.util.module_from_spec(importlib.util.find_spec("textwrap3"))
+    # (lb): Not familiar enough to know if sufficient, but simpler works for me:
+    #  a_textwrap = importlib.import_module('textwrap3')
 
 
 __all__ = 'wrap fill shorten strip_color ansilen ansi_terminate_lines'.split()
@@ -113,7 +115,17 @@ def fill(s, width=70, **kwargs):
 
 
 def _ansi_optimize(s):
-    # remove clear-to-end-of-line (EL)
+    """remove clear-to-end-of-line (EL)"""
+    # (lb): Note that the ansiwrap test is the only thing that calls this
+    #       function. I don't see it used in production code, so to speak.
+    #       I.e. this function could be moved to a tests/ module.
+    # (lb): py.test complains on upstream ansiwrap's original code,
+    #         s = re.sub('\x1b\[K', '', s)
+    #       indicating:
+    #         DeprecationWarning: invalid escape sequence \[
+    #       which I quickly fixed removing the escape:
+    #         s = re.sub('\x1b[K', '', s)
+    #       but tirkarthi's solution (using r'') feels more correct:
     s = re.sub(r'\x1b\[K', '', s)
     return s
 
