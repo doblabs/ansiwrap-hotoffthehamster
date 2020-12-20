@@ -2,8 +2,12 @@
 from __future__ import print_function
 from ansiwrap import *
 import textwrap
-from colors import *
 import sys
+try:
+  from colors import *
+except ImportError:
+  print('ERROR: Missing colors, try: `pip install ansicolors`')
+  sys.exit(1)
 
 try:
     ascii
@@ -53,6 +57,15 @@ print("ansiwrap output should look identical to")
 print("textwrap output...with the exception of color.")
 print()
 
-from say import say
+# (lb): 'say' is another package from original ansiwrap author, but it's also
+# not installed by the package (nor is there, say, a requirements/test.pip)
+# but don't bother -- the say() below fails, indicating:
+#
+#   TypeError: write() argument must be str, not bytes
+try:
+  from say import say
 
-say(fill(text, width), prefix='| ')
+  say(fill(text, width), prefix='| ')
+except ImportError:
+  pass
+
