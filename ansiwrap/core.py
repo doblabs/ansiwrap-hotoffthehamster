@@ -15,9 +15,14 @@ except ImportError:
 
     a_textwrap = imp.load_module('a_textwrap', *imp.find_module('textwrap3'))
 else:
-    a_textwrap = importlib.util.module_from_spec(importlib.util.find_spec("textwrap3"))
-    # (lb): Not familiar enough to know if sufficient, but simpler works for me:
-    #  a_textwrap = importlib.import_module('textwrap3')
+    # (lb): I picked a solution from another ansiwrap fork:
+    #   a_textwrap = importlib.util.module_from_spec(importlib.util.find_spec("textwrap3"))
+    # but then I get a runtime error on wrap():
+    #    wrapped = a_textwrap.wrap(s, width, **kwargs)
+    # which fails:
+    #   AttributeError: module 'textwrap3' has no attribute 'wrap'
+    # Fortunately, this simpler call works for me:
+    a_textwrap = importlib.import_module('textwrap3')
 
 
 __all__ = 'wrap fill shorten strip_color ansilen ansi_terminate_lines'.split()
