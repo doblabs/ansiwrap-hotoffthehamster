@@ -12,16 +12,27 @@ def lines(text):
     return [l.strip() for l in text.strip().splitlines() if l.strip()]
 
 
+COMMIT_AUTHORS = [
+  'HotOffThe Hamster <hotoffthehamster+ansiwrao@gmail.com>',
+  'Jonathan Eunice <jonathan.eunice@gmail.com>',
+  'Lorenz Diener <lorenzd@gmail.com>',
+  'Julien Nicoulaud <julien.nicoulaud@gmail.com>',
+  'Ken Odegard <ken.odegard@gmail.com>',
+  'Karthikeyan Singaravelan <tir.karthi@gmail.com>',
+]
+
+
 setup(
-    name='ansiwrap',
+    name='ansiwrap-hotoffthehamster',
     version='0.8.4',
-    author='Jonathan Eunice',
-    author_email='jonathan.eunice@gmail.com',
+    author=', '.join(COMMIT_AUTHORS),
+    maintainer='HotOffThe Hamster',
+    maintainer_email='hotoffthehamster+ansiwrap@gmail.com',
     description="textwrap, but savvy to ANSI colors and styles",
     long_description=open('README.rst', encoding='utf-8').read(),
-    url='https://github.com/jonathaneunice/ansiwrap',
+    url='https://github.com/hotoffthehamster/ansiwrap-hotoffthehamster',
     license='Apache License 2.0',
-    packages=['ansiwrap'],
+    packages=['ansiwrap_hotoffthehamster'],
     setup_requires=[],
     install_requires=['textwrap3>=0.9.2'],
     tests_require=['tox', 'pytest', 'ansicolors>=1.1.8', 'coverage', 'pytest-cov'],

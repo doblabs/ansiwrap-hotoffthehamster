@@ -4,9 +4,9 @@ import textwrap3 as textwrap
 from colors import *  # must come before ansiwrap import
                       # so ansiwrap's better strip_color prevails
 
-from ansiwrap import *
-from ansiwrap.core import _ansi_optimize
-from ansiwrap.ansistate import ANSIState
+from ansiwrap_hotoffthehamster import *
+from ansiwrap_hotoffthehamster.core import _ansi_optimize
+from ansiwrap_hotoffthehamster.ansistate import ANSIState
 
 import pytest
 import random

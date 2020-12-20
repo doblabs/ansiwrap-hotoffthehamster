@@ -1,6 +1,6 @@
 
 from __future__ import print_function
-from ansiwrap import *
+from ansiwrap_hotoffthehamster import fill
 import textwrap
 import sys
 try:
