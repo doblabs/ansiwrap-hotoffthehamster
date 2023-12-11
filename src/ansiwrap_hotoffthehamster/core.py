@@ -1,8 +1,9 @@
 from __future__ import absolute_import, print_function
 
-from .ansistate import ANSIState
 import re
 import sys
+
+from .ansistate import ANSIState
 
 # import a copy of textwrap3 which we will viciously monkey-patch
 # to use our version of len, not the built-in

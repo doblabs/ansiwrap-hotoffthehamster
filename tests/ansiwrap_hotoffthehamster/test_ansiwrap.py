@@ -5,13 +5,14 @@ from colors import *  # must come before ansiwrap import
 
 # so ansiwrap's better strip_color prevails
 
-from ansiwrap_hotoffthehamster import *
-from ansiwrap_hotoffthehamster.core import _ansi_optimize
-from ansiwrap_hotoffthehamster.ansistate import ANSIState
-
-import pytest
 import random
 import sys
+
+import pytest
+
+from ansiwrap_hotoffthehamster import *
+from ansiwrap_hotoffthehamster.ansistate import ANSIState
+from ansiwrap_hotoffthehamster.core import _ansi_optimize
 
 _PY2 = sys.version_info[0] == 2
 VERSION = sys.version_info[:2]
