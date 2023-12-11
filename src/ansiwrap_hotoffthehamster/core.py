@@ -13,7 +13,7 @@ except ImportError:
     # for Python 2.6
     import imp
 
-    a_textwrap = imp.load_module('a_textwrap', *imp.find_module('textwrap3'))
+    a_textwrap = imp.load_module("a_textwrap", *imp.find_module("textwrap3"))
 else:
     # (lb): I picked a solution from another ansiwrap fork:
     #   a_textwrap = importlib.util.module_from_spec(importlib.util.find_spec("textwrap3"))
@@ -22,12 +22,12 @@ else:
     # which fails:
     #   AttributeError: module 'textwrap3' has no attribute 'wrap'
     # Fortunately, this simpler call works for me:
-    a_textwrap = importlib.import_module('textwrap3')
+    a_textwrap = importlib.import_module("textwrap3")
 
 
-__all__ = 'wrap fill shorten strip_color ansilen ansi_terminate_lines'.split()
+__all__ = "wrap fill shorten strip_color ansilen ansi_terminate_lines".split()
 
-ANSIRE = re.compile('\x1b\\[(K|.*?m)')
+ANSIRE = re.compile("\x1b\\[(K|.*?m)")
 
 
 _PY2 = sys.version_info[0] == 2
@@ -43,7 +43,7 @@ def strip_color(s):
     Those include `\x1b[K` (aka EL or erase to end of line) and `\x1b[m`
     a terse version of the more common `\x1b[0m`.
     """
-    return ANSIRE.sub('', s)
+    return ANSIRE.sub("", s)
 
     # strip_color provided here until correct version can be installed
     # via ansicolors
@@ -58,7 +58,7 @@ def ansilen(s):
     use len() for non-string measures.
     """
     if isinstance(s, string_types):
-        s_without_ansi = ANSIRE.sub('', s)
+        s_without_ansi = ANSIRE.sub("", s)
         return len(s_without_ansi)
     else:
         return len(s)
@@ -74,20 +74,20 @@ def _unified_indent(kwargs):
     made into the the value of both the `initial_indent` and the
     `subsequent_indent` parameters in the returned dictionary.
     """
-    indent = kwargs.get('indent')
+    indent = kwargs.get("indent")
     if indent is None:
         return kwargs
     unifed = kwargs.copy()
-    del unifed['indent']
-    str_or_int = lambda val: ' ' * val if isinstance(val, int) else val
+    del unifed["indent"]
+    str_or_int = lambda val: " " * val if isinstance(val, int) else val
     if isinstance(indent, tuple):
         initial, subsequent = indent
     else:
         initial, subsequent = (indent, indent)
 
     initial, subsequent = indent if isinstance(indent, tuple) else (indent, indent)
-    unifed['initial_indent'] = str_or_int(initial)
-    unifed['subsequent_indent'] = str_or_int(subsequent)
+    unifed["initial_indent"] = str_or_int(initial)
+    unifed["subsequent_indent"] = str_or_int(subsequent)
     return unifed
 
 
@@ -116,7 +116,7 @@ def fill(s, width=70, **kwargs):
     2. Accepts a unified `indent` parameter that, if present, sets the
     `initial_indent` and `subsequent_indent` parameters at the same time.
     """
-    return '\n'.join(wrap(s, width, **kwargs))
+    return "\n".join(wrap(s, width, **kwargs))
 
 
 def _ansi_optimize(s):
@@ -131,7 +131,7 @@ def _ansi_optimize(s):
     #       which I quickly fixed removing the escape:
     #         s = re.sub('\x1b[K', '', s)
     #       but tirkarthi's solution (using r'') feels more correct:
-    s = re.sub(r'\x1b\[K', '', s)
+    s = re.sub(r"\x1b\[K", "", s)
     return s
 
 
@@ -156,18 +156,18 @@ def ansi_terminate_lines(lines, **kwargs):
     state = ANSIState()
     term_lines = []
     end_code = None
-    initial_indent_len = len(kwargs.get('initial_indent',''))
-    subsequent_indent_len = len(kwargs.get('subsequent_indent', ''))
+    initial_indent_len = len(kwargs.get("initial_indent", ""))
+    subsequent_indent_len = len(kwargs.get("subsequent_indent", ""))
     for i, line in enumerate(lines):
         indent_len = initial_indent_len if i == 0 else subsequent_indent_len
         codes = ANSIRE.findall(line[indent_len:])
         for c in codes:
             state.consume(c)
-        if end_code:          # from prior line
+        if end_code:  # from prior line
             line = line[:indent_len] + end_code + line[indent_len:]
         end_code = state.code()
-        if end_code:          # from this line
-            line = line + '\x1b[0m'
+        if end_code:  # from this line
+            line = line + "\x1b[0m"
 
         term_lines.append(line)
 
@@ -185,9 +185,9 @@ def shorten(text, width, **kwargs):
         'Hello [...]'
     """
     w = a_textwrap.TextWrapper(width=width, max_lines=1, **kwargs)
-    unterm = w.wrap(' '.join(text.strip().split()))
+    unterm = w.wrap(" ".join(text.strip().split()))
     if not unterm:
-        return ''
+        return ""
     term = ansi_terminate_lines(unterm[:1])
     return term[0]
 
