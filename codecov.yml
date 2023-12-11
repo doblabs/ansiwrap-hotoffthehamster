@@ -1,0 +1,44 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/<varies>
+# Pattern: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+# # ISOFF/2023-05-22: No longer necessary (or perhaps was never necessary
+# # to explicitly specify branch).
+# codecov:
+#   branch: release
+#
+#   # ISOFF/2023-05-22: No longer necessary. But documented for posterity.
+#   #
+#   # # (lb): With setting disable_default_path_fixes, I see:
+#   # #   "There was an error processing coverage reports."
+#   # # Strangely, I find exactly 7 hits when I Goggle this keyname.
+#   # # And they all point to a codecov issue comment:
+#   # #   https://github.com/codecov/support/issues/396#issuecomment-300879528
+#   # # which is a dead link.
+#   # # There are a few score more hits on GitHub proper:
+#   # #   https://github.com/search?l=&q=disable_default_path_fixes&type=Code
+#   # # but still solely yaml results. I.e., cannot find application source
+#   # # that reads/uses this value.
+#   # # - Is this an undocumented, proprietary https://codecov.io setting?
+#   #
+#   # disable_default_path_fixes: true
+
+# ISOFF/2023-05-22: Possibly related to `disable_default_path_fixes` setting
+# that used to be enabled? In any case, this `fixes` setting causes repeated
+# Codecov.io paths — `path/to/project/src/easy_as_pypi/src/easy_as_pypi/...`.
+#
+# # Specify the GitHub project directory path prefix so that clicking source
+# # files in codecov.io opens the coverage browser.
+# #
+# fixes:
+#   - "::src/easy_as_pypi/"
+
+coverage:
+  # precision: 0 | 2
+  precision: 0
+  # round: [down] | up | nearest
+  range: 70...100

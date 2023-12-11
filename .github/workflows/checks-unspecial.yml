@@ -1,0 +1,45 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+# SAVVY: This is the name used for the workflow status badge, e.g.,
+#   https://github.com/doblabs/easy-as-pypi/actions/workflows/checks-unspecial.yml/badge.svg?branch=release
+# - 2023-10-08: All the README badges currently use lowercased, single word
+#   names, e.g., from left-to-right,
+#     checks|passing codecov|90% docs|passing release|v1.1.3 pypi|v1.1.3
+#       python|3.9|3.10|3.11 license|MIT
+#   So we'll do the same here (unlike other workflows whose names are capitalized)
+#   - I.e., rather than
+#     name: Checks — Unspecial Push
+# USYNC: This name is used in the README badge.
+name: checks
+
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#name
+#  run-name: Run checks on ‘${{ github.ref_name }}’ — ${{ github.event.head_commit.message }}
+run-name: ✅ — Checks — ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - "!v?[0-9]+.[0-9]+.[0-9]+*"
+
+# ***
+
+# Cancel active workflow runs for the same ref type and ref.
+# - As inspired by Vim's .github/workflows/ci.yaml.
+concurrency:
+  # E.g., on push, "checks-unspecial-784d511ea5a454ab2b5523dfc39d8e8db01aa32b".
+  # - Note: For github.event_name = pull_request, use github.head_ref, not sha.
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  branch-checks-runner:
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit

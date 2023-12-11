@@ -1,0 +1,140 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+# Beneath each org/repo: key is a list of downstream projects, with
+# generally all but one of the downstream projects comment-disabled.
+# In this way we'll chain project releases together, one-by-one, as
+# opposed to notifying *every* downstream project for each project.
+# (Otherwise some downstream projects would unnecessarily run more
+# times than we need (which is once each).)
+# - Note where the whole list of downstream projects is disabled
+#   and a closer downstream project is listed instead, so that
+#   we visit every project once in its stream order, e.g.,:
+#     easy-as-pypi → easy-as-pypi-appdirs → easy-as-pypi-config →
+#       easy-as-pypi-getver → easy-as-pypi-termio  → nark →
+#         dob-bright → dob-prompt → dob-viewer → dob
+#   - I.e., if you release easy-as-pypi, then we'll visit each
+#     project as listed until we eventually update and release
+#     dob.
+
+# TRICK: You can easily extract values from herein using `yq`, e.g.,
+#
+#   yq -r '.["doblabs/ansi-escape-room"][0]' .github/doblabs-dependencies.yml
+
+# ***
+
+# These projects are not based on easy-as-pypi boilerplate, so
+# releasing one of these causes its closest downstream user to be
+# notified (so we skip over the beginning of the easy-as-pypi chain).
+
+doblabs/ansi-escape-room:
+  - doblabs/easy-as-pypi-termio
+  # - doblabs/nark
+
+doblabs/ansiwrap-hotoffthehamster:
+  - doblabs/nark
+
+doblabs/click-hotoffthehamster:
+  - doblabs/easy-as-pypi-config
+  # - doblabs/easy-as-pypi-termio
+  # - doblabs/dob-bright
+  # - doblabs/dob-viewer
+  # - doblabs/dob
+  # - befinance/birdseye
+
+doblabs/click-hotoffthehamster-alias:
+  - doblabs/dob
+
+doblabs/config-decorator:
+  - doblabs/easy-as-pypi-config
+  # - doblabs/nark
+  # - doblabs/dob-bright
+  # - befinance/birdseye
+
+doblabs/human-friendly_pedantic-timedelta:
+  - doblabs/nark
+  # - doblabs/dob-prompt
+  # - doblabs/dob
+
+doblabs/sqlalchemy-migrate-hotoffthehamster:
+  - doblabs/nark
+
+# ***
+
+doblabs/easy-as-pypi:
+  # - doblabs/easy-as-pypi-appdirs
+  # - doblabs/easy-as-pypi-config
+  # - doblabs/easy-as-pypi-getver
+  # - doblabs/easy-as-pypi-termio
+  # Cascade proj-by-proj:
+  - doblabs/easy-as-pypi-appdirs
+
+doblabs/easy-as-pypi-appdirs:
+  # - doblabs/nark
+  # # - doblabs/dob-bright
+  # # - doblabs/dob-prompt
+  # # - doblabs/dob
+  # - befinance/birdseye
+  # Cascade proj-by-proj:
+  - doblabs/easy-as-pypi-config
+
+doblabs/easy-as-pypi-config:
+  # - doblabs/dob-bright
+  # # - doblabs/dob
+  # - befinance/birdseye
+  # Cascade proj-by-proj:
+  - doblabs/easy-as-pypi-getver
+
+doblabs/easy-as-pypi-getver:
+  # - doblabs/nark
+  # # - doblabs/dob-bright
+  # # - doblabs/dob-prompt
+  # # - doblabs/dob-viewer
+  # # - doblabs/dob
+  # - befinance/birdseye
+  # Cascade proj-by-proj:
+  - doblabs/easy-as-pypi-termio
+
+doblabs/easy-as-pypi-termio:
+  # - doblabs/dob-bright
+  # # - doblabs/dob-viewer
+  # # - doblabs/dob
+  # Cascade to apps:
+  - doblabs/nark
+  - befinance/birdseye
+
+# ***
+
+doblabs/nark:
+  # - doblabs/dob-bright
+  # # - doblabs/dob-prompt
+  # # - doblabs/dob-viewer
+  # # - doblabs/dob
+  # Cascade proj-by-proj:
+  - doblabs/dob-bright
+
+doblabs/dob-bright:
+  # - doblabs/dob-prompt
+  # # - doblabs/dob-viewer
+  # # - doblabs/dob
+  # Cascade proj-by-proj:
+  - doblabs/dob-prompt
+
+doblabs/dob-prompt:
+  - doblabs/dob-viewer
+
+doblabs/dob-viewer:
+  - doblabs/dob
+
+# ***
+
+# doblabs/dob:
+#   - Done!
+
+# befinance/birdseye:
+#   - Done!

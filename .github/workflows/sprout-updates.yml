@@ -1,0 +1,139 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+# USAGE: Use this workflow to start a release cascade,
+#        beginning on the current project.
+#
+#        The user can choose both cascade options:
+#
+#        - Whether to call poetry-update, and whether to update
+#          all deps ("full"), or just "our" deps.
+#
+#        - Whether to bump the version, and by how much.
+#
+# - SAVVY: If both inputs are 'skip', workflows will run from
+#   one project to another, but nothing really happens.
+#
+# - SAVVY: If user choose 'alpha' cascade-deps option, workflow will
+#   publish to test.PyPI (and smoke-test will pip-install from there).
+#
+# - SAVVY: If user just wants to update third-party deps, they can set
+#   cascade-version to 'skip' (and cascade-updatedeps to not 'skip').
+#   Then, because none of "our" deps will be versioned and released,
+#   poetry-update will likely not see any new versions of "our" deps,
+#   but poetry-update may find third-party deps with newer versions.
+
+# USYNC: This name is used by `gh workflow run`.
+# - Search for: 'Start Cascade!'
+name: Start Cascade!
+
+run-name: 👣 — Cascade — 1.) Start Cascade! ${{
+  false
+  || (github.event_name == 'repository_dispatch' && '(from up)')
+  || (github.event_name == 'workflow_dispatch' && '(via User)')
+  || '(from unknown sources)' }}
+
+on:
+  # Via spread-updates.yml from upstream project
+  repository_dispatch:
+    types: [sprout-updates]
+    # Inputs are not defined, but are part of github.event.client_payload.
+    # This workflow looks for the following inputs:
+    #
+    #   inputs:
+    #     - cascade-updatedeps
+    #     - cascade-versioning
+
+  # Via GitHub Actions website button, from user
+  workflow_dispatch:
+    inputs:
+      cascade-updatedeps:
+        description: 'Cascade poetry-update'
+        type: choice
+        options:
+          - 'full'
+          - 'ours'
+          - 'skip'
+        default: 'skip'
+
+      cascade-versioning:
+        description: 'Cascade version bump'
+        type: choice
+        options:
+          - 'alpha'
+          - 'patch'
+          - 'skip'
+        default: 'skip'
+
+# SAVVY: GitHub imposes a nested reusable workflow limit of 3, so we cannot
+# call update-deps as a reusable workflow. I.e., this won't work:
+#
+#   jobs:
+#     update-deps:
+#       uses: ./.github/workflows/update-deps.yml
+#       secrets: inherit
+#       with:
+#         cascade-updatedeps: ${{ ... }}
+#         cascade-versioning: ${{ ... }}
+#
+# Because we'll end up at the disallowed fourth level if both values
+# are 'skip' and each workflow keeps calling the next one, e.g.,:
+# - First (1), this workflow (sprout-updates) runs. Then it calls
+#   (2) update-deps, which, because 'skip', calls
+#   (3) update-merged, which because 'skip', calls
+#   (4) spread-updates, which is fine, this is depth 3,
+#   *however*, spread-updates uses (5) ci-tags-wrangle, and
+#   then we've exceeded the limit, which GH Actions actually
+#   sees before running any jobs, during parsing, and fails:
+#     job "wrangle-ci-tags-cleanup" calls workflow
+#     "./.github/workflows/ci-tags-wrangle.yml", but doing
+#     so would exceed the limit on called workflow depth of 3
+#
+# So here rather than nesting update-deps, we'll dispatch it
+# using `gh`.
+
+jobs:
+  update-deps:
+    name: "Dispatch"
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (so `gh` works)
+        uses: actions/checkout@v4
+        # Skip: No need to checkout ${{ vars.PRERELEASE_BRANCH }}
+        #       if pre-release; we just need repo for `gh` command.
+
+      # REFER:
+      # https://docs.github.com/en/actions/using-workflows/reusing-workflows#nesting-reusable-workflows
+      - name: Run update-deps workflow (bypass nested reusable workflow limit)
+        run: |
+          # USYNC: The name is from .github/workflows/update-deps.yml
+          workflow_name="Release Cascade — Update"
+          from_upstream="${{ github.event_name == 'repository_dispatch' }}"
+          echo "\
+            gh workflow run \"${workflow_name}\" \\
+              -f \"which-deps=${CASCADE_UPDATEDEPS}\" \\
+              -f \"include-prerelease-lock=\" \\
+              -f \"bump-part=${CASCADE_VERSIONING}\" \\
+              -f \"cascade-dispatch=true\" \\
+              -f \"from-upstream=${from_upstream}\" \
+            "
+          gh workflow run "${workflow_name}" \
+            -f "which-deps=${CASCADE_UPDATEDEPS}" \
+            -f "include-prerelease-lock=" \
+            -f "bump-part=${CASCADE_VERSIONING}" \
+            -f "cascade-dispatch=true" \
+            -f "from-upstream=${from_upstream}" \
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CASCADE_UPDATEDEPS: ${{
+            github.event.client_payload.cascade-updatedeps
+            || inputs.cascade-updatedeps }}
+          CASCADE_VERSIONING: ${{
+            github.event.client_payload.cascade-versioning
+            || inputs.cascade-versioning }}

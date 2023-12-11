@@ -1,3 +1,72 @@
-/*.egg-info/
-__pycache__
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/<varies>
+# Pattern: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# Packaging — `make build`.
+/dist/
+
+# Testing/CI tasks.
+/.pytest_cache/
+/.tox/
+
+# Coverage — `make coverage`.
+/.coverage
+# Coverage — `make coverage-html`.
+/htmlcov/
+# Coverage — `codecov` https://codecov.io.
+/coverage.xml
+
+# Sphinx Docs — `make docs`.
+/docs/_build/
+# `make docs` generates at least two files for the API reference, an
+# index file (modules.rst), and an API reference (project-name.rst),
+# e.g.,
+#   docs/modules.rst
+#   docs/easy_as_pypi.rst
+# We could exclude these from the repo, because generated, but don't, so
+# that they'll appear in `git ls-files` diffs between projects that share
+# the Easy-as-PyPI boilerplate, which is helpful when syncing changes.
+#
+# You might also want to tweak the generated docs/easy_as_pypi.rst file,
+# to, say, tweak the TOC. For an example, see:
+#   docs/easy-as-pypi.rst
+
+# Bytecode.
+*.py[cod]
+__pycache__/
+
+# Editable pyproject.toml and .venv-<project> — `make develop`.
+# - USYNC: EDITABLE_DIR ?= .pyproject-editable
+/.pyproject-editable/
+.venv*/
+
+# USYNC: UPFUL_PYPROJECT_TMPL_CACHE=".pyproject-cache.data"
+# - CXREF: ~/.kit/py/easy-as-pypi/bin/update-faithful
+# - This is jinja2 template source data compiled from pyproject.toml.
+/.pyproject-cache.data
+
+# DX artifacts.
+# - USYNC: Matches VIM_QUICKFIX_FLAKE8 from `make flake8`.
+#   - If you use a different path, add yours to .git/info/exclude
+/.vimquickfix.flake8
+# - USYNC: Matches VIM_QUICKFIX_PYTEST from `make test-local`.
+#   - If you use a different path, add yours to .git/info/exclude
+/.vimquickfix.pytest
+
+# User's personal .ignore (see .ignore.example).
+/.ignore
+
+# ***
+
+# Non-DepoXy Developer-specific rules.
+/.idea/
+/.vscode/
+.DS_Store/
+# Alternative venv directories.
+/env/
+/venv/
+# REFER: https://github.com/python-rope/rope
+# https://rope.readthedocs.io/en/latest/overview.html
+/.ropeproject
 

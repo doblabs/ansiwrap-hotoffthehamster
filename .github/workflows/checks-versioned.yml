@@ -1,0 +1,76 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+name: Checks — Version Tag (and GH Rel)
+
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#name
+# - The example adds “by @${{ github.actor }}”, but that's in the byline below the title, too.
+run-name: 📢 — GitHub — ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - "v?[0-9]+.[0-9]+.[0-9]+*"
+
+# ***
+
+# In the unlikely event user removed a release tag and reapplied it,
+# kill outstanding jobs from previous workflow on same version (ref).
+concurrency:
+  # E.g., on push, "checks-versioned-refs/tags/1.1.1a1".
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versioned-checks-runner:
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
+
+  # SAVVY: This job should never fail because the on.push.tags pattern
+  #        match above should act the same as this Bash pattern match.
+  # - This job is from before checks were split into checks-unspecial.yml
+  #   and checks-versioned.yml. Back then, all push events were handled
+  #   by the same workflow, and there was no on.push.tags pattern. (So
+  #   we could probably nix this check; but let's start with proof this
+  #   assessment is correct, with an assert job (see below).)
+  check-is-version-tag:
+    runs-on: ubuntu-latest
+    needs: versioned-checks-runner
+    steps:
+      - name: Test event type and ref is proper version tag
+        id: check-is-version-tag
+        run: |
+          if [[ \
+            ${{ github.event.ref }} =~ ^refs/tags/v?[0-9]+\.[0-9]+\.[0-9]+.*$ \
+          ]]; then
+              echo "is_version_tag=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_REF_TYPE: ${{ github.ref_type }}
+      - name: Report detected maybe
+        if: steps.check-is-version-tag.outputs.is_version_tag == 'true'
+        run: echo "Version tag detected"
+    outputs:
+      is_version_tag: ${{ steps.check-is-version-tag.outputs.is_version_tag }}
+
+  # LATER/2023-12-05: If this never fails, remove this job and check-is-version-tag.
+  assert-patterns-agree:
+    runs-on: ubuntu-latest
+    needs: check-is-version-tag
+    if: needs.check-is-version-tag.outputs.is_version_tag == 'false'
+    steps:
+      # Unreachable: Per long comment above, both tags pattern should agree.
+      - run: false  # Think of this as assert(false), ka-boom-boom
+
+  release-gh-runner:
+    needs: check-is-version-tag
+    if: needs.check-is-version-tag.outputs.is_version_tag == 'true'
+    uses: ./.github/workflows/release-github.yml
+    secrets: inherit
+    with:
+      version_tag: ${{ github.ref_name }}

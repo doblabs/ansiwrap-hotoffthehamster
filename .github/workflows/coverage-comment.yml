@@ -1,0 +1,79 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# https://github.com/marketplace/actions/python-coverage-comment
+
+---
+
+# USYNC: coverage-comment.yml name ↔ coverage-comment-external.yml on-workflow_run.
+name: Attach Cov comment — Internal PR
+
+run-name: 📎 — Cov comment — Internal PR
+
+on:
+  pull_request:
+
+# ***
+
+env:
+  # TRACK: https://github.com/actions/python-versions/releases
+  # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
+  PYTHON_VERSION: 3.11
+
+# COPYD: https://github.com/py-cov-action/python-coverage-comment-action#basic-usage
+jobs:
+  test:
+    name: Run tests & display coverage
+    runs-on: ubuntu-latest
+    # Set permissions for actions/upload-artifact@v3
+    permissions:
+      # Gives the action the necessary permissions for publishing new
+      # comments in pull requests.
+      pull-requests: write
+      # Gives the action the necessary permissions for pushing data to the
+      # python-coverage-comment-action branch, and for editing existing
+      # comments (to avoid publishing multiple comments in the same PR)
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        id: setup-python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'poetry'
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --with test,project_test
+
+      - name: Coverage compute
+        run: poetry run make _coverage_sqlite
+
+      - name: Coverage comment
+        id: coverage_comment
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # Per source, the comment file is only written if the previous step
+      # failed to post the coverage comment to the PR, because the PR is
+      # an "external PR", i.e., the PR branch is from a remote repo. (So
+      # if you're PRing from the same org, don't worry if you see the next
+      # step skipped (COMMENT_FILE_WRITTEN is false).)
+      # CXREF: https://github.com/py-cov-action/python-coverage-comment-action/blob/2b8f85c293c3431e451c0e6084ca63f23cd80fe6/coverage_comment/main.py#L167
+
+      - name: Store Pull Request comment to be posted
+        uses: actions/upload-artifact@v3
+        if: steps.coverage_comment.outputs.COMMENT_FILE_WRITTEN == 'true'
+        with:
+          # If you use a different name, update COMMENT_ARTIFACT_NAME accordingly
+          name: python-coverage-comment-action
+          # If you use a different name, update COMMENT_FILENAME accordingly
+          path: python-coverage-comment-action.txt

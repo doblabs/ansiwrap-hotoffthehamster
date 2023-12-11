@@ -1,0 +1,60 @@
+# vim:tw=0:ts=2:sw=2:et:norl:nospell:ft=gitignore
+# Project: https://github.com/<varies>
+# Pattern: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# USAGE: `/bin/cp .ignore.example .ignore` and personalize.
+
+/.git/
+
+# Packaging — `make build`.
+/dist/
+
+# Testing/CI tasks.
+/.pytest_cache/
+/.tox/
+
+# Coverage — `make coverage`.
+/.coverage
+# Coverage — `make coverage-html`.
+/htmlcov/
+# Coverage — `codecov` https://codecov.io.
+/coverage.xml
+
+# Sphinx Docs — `make docs`.
+/docs/_build/
+/docs/_themes/sphinx_rtd_theme/
+
+# Localization file.
+/locale/messages.pot
+# Translations files.
+*.mo
+# Leaving: *.po
+
+# Bytecode.
+*.py[cod]
+__pycache__/
+
+# Poetry.
+/poetry.lock
+/.pyproject-*/poetry.lock
+
+# `make docs` (make_docs_html) venv.
+/.pyproject-doc8/.venv/
+# `make develop`-generated editable build (for ./.venv-<project>).
+# USYNC: EDITABLE_DIR (Makefile)
+/.pyproject-editable/poetry.lock
+/.pyproject-editable/pyproject.toml
+# All and any venv: .venv-<project>/, .venv-doc8/, .venv-docs/,
+#                   .pyproject-doc8/.venv/, &c.
+# USYNC: VENV_NAME (Makefile)
+.venv*/
+
+# DX artifacts.
+# - USYNC: Matches VIM_QUICKFIX_FLAKE8 from `make flake8`.
+#   - If you use a different path, add yours to .git/info/exclude
+/.vimquickfix.flake8
+# - USYNC: Matches VIM_QUICKFIX_PYTEST from `make test-local`.
+#   - If you use a different path, add yours to .git/info/exclude
+/.vimquickfix.pytest
+

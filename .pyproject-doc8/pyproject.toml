@@ -1,0 +1,96 @@
+# vim:tw=0:ts=4:sw=4:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# This is an example of a pseudo project you could use if one set of
+# packages conflict with other packages.
+#
+# - For example (as explained in detail in easy-as-pypi/pyproject.toml),
+#   'sphinx-rtd-theme' conflicts with 'doc8'.
+#
+#   - Because we only need 'doc8' on its own, the work-around implemented
+#     in easy-as-pypi is to manage 'doc8' separately in its own virtualenv
+#     but using pip-install, and not Poetry.
+#
+#     - This is acceptable (and simpler) because it's just one package,
+#       so we don't really need Poetry, at least not its dependency
+#       checker.
+#
+#   - But if we wanted to use Poetry to manage both environments,
+#     this example shows how to do it.
+#
+#     - For instance, suppose two packages conflict, but they are
+#       each part of a larger suite of packages that work together.
+#
+#       Then you'd want to use a pseudo project and pyproject.toml,
+#       like this one, so that you could use Poetry practices on
+#       both environments.
+
+[tool.poetry]
+
+name = "pyproject-doc8"
+version = "0.0.0"
+description = ""
+authors = []
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+
+python = "^3.11"
+
+[build-system]
+
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+
+# - "Style checker for Sphinx (or other) RST documentation"
+#
+#   https://pypi.org/project/doc8
+#   https://launchpad.net/doc8
+doc8 = ">=1.1.1"
+
+# DUNNO/2023-05-22: I'm not sure this issue still happens:
+# - Avoid doc8 error: `D000 Cannot analyze code. Pygments package not found.`
+#
+#   https://pypi.org/project/pygments
+#   https://pygments.org/
+pygments = ">=2.15.1"
+
+# ================================================================= #
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+# ================================================================= #
+
+# COPYD/2023-05-22: Duplicated from easy-as-pypi/pyproject.toml
+# - USYNC: This pyproject.toml is just an example, so no bad if
+#   this config trails its progenitor.
+
+[tool.doc8]
+
+ignore-path = [
+    ".tox/",
+    # From `sphinx-apidoc` called by `make docs` from Makefile.
+    "docs/_build/",
+    # For Makefile targets that create virtualenvs, e.g.,
+    # `make develop`, `make doc8`, `make docs`, etc.
+    ".venv*/",
+    # For `lint` GitHub Actions job run by .github/workflows/checks.yaml
+    # FIXME/2023-05-22 12:57: Disabling. Wouldn't `.venv*/` cover this?
+    #  ".pyproject-doc8/.venv/",
+]
+
+# USYNC: (max) line length shared among: black, flake8, isort, and doc8.
+max-line-length = 88
+
+# Here's an old note: "Specify encoding lest doc8 think it's 'Windows-1254'
+#                      and raise UnicodeDecodeError."
+file-encoding = "utf-8"
+
+# If you need to ignore specific errors in a specific file:
+#  ignore-path-errors=/tmp/other_thing.rst;D001;D002
+# DEVs: Uncomment verbose for TMI.
+#  verbose = 1
+

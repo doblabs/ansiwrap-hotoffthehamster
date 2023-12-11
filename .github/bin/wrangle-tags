@@ -1,0 +1,574 @@
+#!/usr/bin/env bash
+# vim:tw=0:ts=2:sw=2:et:norl:nospell:ft=sh
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+# CPYST: Wired into GHA CI, but callable from developer term, too:
+__USAGE__="
+  GITHUB_OUTPUT="$(mktemp -t wrangle-tags-XXXXX)" ./.github/bin/wrangle-tags
+
+  EAPP_INHIBIT_CASCADE=true \
+  EAPP_INHIBIT_FOREVER='' \
+  EAPP_CASCADE_UPDATEDEPS='' \
+  EAPP_CASCADE_VERSIONING='' \
+  GITHUB_OUTPUT="$(mktemp -t wrangle-tags-XXXXX)" \
+    ./.github/bin/wrangle-tags
+
+  EAPP_INHIBIT_CASCADE=true \
+  EAPP_INHIBIT_FOREVER='' \
+  EAPP_CASCADE_UPDATEDEPS='' \
+  EAPP_CASCADE_VERSIONING='' \
+  GITHUB_OUTPUT="$(mktemp -t wrangle-tags-XXXXX)" \
+    ~/.kit/py/easy-as-pypi/.github/bin/wrangle-tags
+"
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+# USYNC: See ./.github/bin/update-poetry, which uses similarly-
+#        named GitHub PR labels for the same Git tags named here.
+#
+#        - We use Git tags to message across the release process,
+#          between the PyPI release workflow, and the smoke test.
+#
+#        - We use GitHub PR labels to message across the poetry-
+#          update process.
+#
+#        In both instances, the workflow effectively ends before resuming
+#        again after some event happens. And we cannot use GHA workflow
+#        artifacts, which only persist throughout a single workflow, to
+#        communicate between workflows.
+#
+#        So these mechanisms (PR labels, and Git tags), seem like the
+#        (only) obvious choice to handle end-to-end workflow settings.
+#
+#        - And there's no reason the Git tags and the GH labels have
+#          to be named the same, except they represent the same value
+#          we want to carry through the cascade workflows.
+#
+#        - Also note that annotated tags can be used to store values,
+#          whereas GH PR labels are simple booleans (is it set or not?).
+#          - So some vars (specifically, ci-cascade-versioning), can be
+#            represented by a single Git tag, but must be represented by
+#            multiple PR labels, one for each possible value.
+
+EAPP_CI_TAG_INHIBIT_CASCADE="ci-inhibit-cascade"
+EAPP_CI_TAG_INHIBIT_FOREVER="ci-inhibit-forever"
+EAPP_CI_TAG_CASCADE_UPDATEDEPS="ci-cascade-updatedeps"
+EAPP_CI_TAG_CASCADE_VERSIONING="ci-cascade-versioning"
+EAPP_CI_TAG_INHIBIT_ALPHA="ci-inhibit-alpha"
+EAPP_CI_TAG_INHIBIT_PATCH="ci-inhibit-patch"
+
+# REFER: See ./.github/workflows/ci-tags-wrangle.yml for the 
+#        environs this script uses as runtime args. They all
+#        default to the empty string:
+#
+#           EAPP_INHIBIT_CASCADE: ${{ inputs.inhibit-cascade }}
+#           EAPP_INHIBIT_FOREVER: ${{ inputs.inhibit-forever }}
+#           EAPP_CASCADE_UPDATEDEPS: ${{ inputs.cascade-updatedeps }}
+#           EAPP_CASCADE_VERSIONING: ${{ inputs.cascade-versioning }}
+#           EAPP_INHIBIT_ALPHA: ${{ inputs.inhibit-alpha }}
+#           EAPP_INHIBIT_PATCH: ${{ inputs.inhibit-patch }}
+#
+#        The corresponding delete tags each default false:
+#
+#           EAPP_DELETE_INHIBIT_CASCADE: ${{ inputs.delete-inhibit-cascade }}
+#           EAPP_DELETE_INHIBIT_FOREVER: ${{ inputs.delete-inhibit-forever }}
+#           EAPP_DELETE_CASCADE_UPDATEDEPS: ${{ inputs.delete-cascade-updatedeps }}
+#           EAPP_DELETE_CASCADE_VERSIONING: ${{ inputs.delete-cascade-versioning }}
+#           EAPP_DELETE_INHIBIT_ALPHA: ${{ inputs.delete-inhibit-alpha }}
+#           EAPP_DELETE_INHIBIT_PATCH: ${{ inputs.delete-inhibit-patch }}
+
+# Optional special keyword, e.g., "FALSE", you could use to delete
+# tags, vs. using the EAPP_DELETE_* environs.
+EAPP_CI_DELETE_KEYWORD="${EAPP_CI_DELETE_KEYWORD}"
+
+# The git-push remote, only used if $CI, so should always be 'origin'.
+EAPP_CI_REMOTE_NAME="${EAPP_CI_REMOTE_NAME:-origin}"
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+wrangle_tags () {
+  declare -a tag_names
+  # CRUDE: Set tag_names array.
+  set_tag_locals ""
+
+  local GIT_PUSH_OUTPUT_DUMP
+  GIT_PUSH_OUTPUT_DUMP="$(mktemp -t wrangle-tags-XXXXX)"
+
+  trace_full
+
+  # USYNC: CI_tags_table_column_widths
+  trace_lite "┌─ CI Wrangler: tag-name: ───────────┬─🥚─┬─ new-val: ─┬─ output-name and val: ────────────┐"
+
+  for which_tag in "${tag_names[@]}"; do
+    trace_full "which tag: ${which_tag}"
+
+    local tag_name
+    local out_name
+    local tag_scope
+    local default_value
+    local new_tag_value
+    local delete_if
+    local skip_if
+    # CRUDE: Set `local` vars for specified tag.
+    set_tag_locals "${which_tag}"
+
+    wrangle_tag \
+      "${tag_name}" \
+      "${out_name}" \
+      "${tag_scope}" \
+      "${default_value}" \
+      "${new_tag_value}" \
+      "${delete_if}" \
+      "${skip_if}"
+
+    trace_full
+  done
+
+  # USYNC: CI_tags_table_column_widths
+  local footer_rhs="────────────────────────────────────┴────┴────────────┴───────────────────────────────────┘"
+
+  local piping="└"
+  if [ -n "${GIT_PUSH_OUTPUT_DUMP}" ] || [ -n "${GITHUB_OUTPUT}" ]; then
+    piping="├"
+  fi
+
+  trace_lite "${piping}${footer_rhs}"
+
+  if [ -s "${GIT_PUSH_OUTPUT_DUMP}" ]; then
+    if [ -z "${GITHUB_OUTPUT}" ]; then
+      piping="└"
+    fi
+
+    trace_lite "${piping}→ git pushes:"
+    trace_lite "$(cat "${GIT_PUSH_OUTPUT_DUMP}" | sed 's/^/    /')"
+  fi
+
+  command rm "${GIT_PUSH_OUTPUT_DUMP}"
+
+  if [ -s "${GITHUB_OUTPUT}" ]; then
+    piping="└"
+
+    trace_lite "${piping}→ GITHUB_OUTPUT:"
+    trace_lite "$(cat "${GITHUB_OUTPUT}" | sed 's/^/    /')"
+  fi
+
+  # Obvi, don't remove ${GITHUB_OUTPUT}, which GHA uses.
+}
+
+# ***
+
+wrangle_tag () {
+  local tag_name_base="$1"
+  local out_name="$2"
+  local tag_scope="$3"
+  local default_value="$4"
+  local new_tag_value="$5"
+  local delete_if="$6"
+  local skip_if="$7"
+
+  trace_full "manage-ci-tag @ $(git rev-parse HEAD)"
+  trace_full "- tag_name_base: ${tag_name_base}"
+  trace_full "- out_name: ${out_name}"
+  trace_full "- tag_scope: ${tag_scope}"
+  trace_full "- default_value: ${default_value}"
+  trace_full "- new_tag_value: ${new_tag_value}"
+  trace_full "- delete_if: ${delete_if}"
+  trace_full "- skip_if?: ${skip_if}"
+
+  # ***
+
+  if ${skip_if}; then
+    return 0
+  fi
+
+  # ***
+
+  local branch_name="$(git rev-parse --abbrev-ref=loose HEAD)"
+
+  local tag_name
+  tag_name="$(format_tag_name "${tag_name_base}" "${tag_scope}" "${branch_name}")"
+
+  # ***
+
+  local tag_exists=false
+
+  if [ "${tag_scope}" = "HEAD" ]; then
+    if head_tag_found "${tag_name}"; then
+      tag_exists=true
+    fi
+  elif [ "${tag_scope}" = "branch" ]; then
+    if branch_tag_found "${tag_name}" "${branch_name}"; then
+      tag_exists=true
+    fi
+  elif [ "${tag_scope}" = "project" ]; then
+    if project_tag_found "${tag_name}"; then
+      tag_exists=true
+    fi
+  fi
+
+  # ***
+
+  local old_tag_value=""
+
+  if ${tag_exists}; then
+    old_tag_value="$(git tag --list --format='%(contents:subject)' "${tag_name}")"
+  else
+    old_tag_value="${default_value}"
+  fi
+
+  # ***
+
+  if [ -n "${EAPP_CI_DELETE_KEYWORD}" ] \
+    && [ "${new_tag_value}" = "${EAPP_CI_DELETE_KEYWORD}" ] \
+    || ${delete_if} \
+  ; then
+    # Only need to delete branch tag if tag_exists,
+    # because otherwise already doesn't exist.
+    # - But always delete HEAD-only tag, in
+    #   case stale one persists elsewhere.
+    if ${tag_exists} || [ "${tag_scope}" = "HEAD" ]; then
+      git tag -d "${tag_name}" \
+        > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1 || true
+
+      if ${CI:-false}; then
+        git push "${EAPP_CI_REMOTE_NAME}" ":refs/tags/${tag_name}" \
+          > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+      fi
+    fi
+  elif [ -n "${new_tag_value}" ]; then
+    # Create tag if new value not non-empty and not "false".
+    if ! ${tag_exists}; then
+      git tag -f -a "${tag_name}" -m "${new_tag_value}" \
+        > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+
+      if ${CI:-false}; then
+        git push -f "${EAPP_CI_REMOTE_NAME}" "refs/tags/${tag_name}" \
+          > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+      fi
+    fi
+  fi
+
+  # ***
+
+  trace_full "${out_name}: ${old_tag_value}"
+
+  # USYNC: CI_tags_table_column_widths
+  trace_lite \
+    "├── $(printf '%-32s' "${tag_name}")" \
+    "│  $(${tag_exists} && echo ✓ || echo ✗)" \
+    "│ $(printf '%+10s' "${new_tag_value}")" \
+    "│ $(printf '%-27s' "${out_name}:") $(printf '%-5s' "${old_tag_value}") │"
+
+  if [ -n "${GITHUB_OUTPUT}" ]; then
+    # Aka `if ${CI:-false}; then`.
+    echo "${out_name}=${old_tag_value}" >> "${GITHUB_OUTPUT}"
+  fi
+}
+
+# ***
+
+# Mung the tag_name depending on tag_scope.
+
+format_tag_name () {
+  local tag_name_base="$1"
+  local tag_scope="$2"
+  local branch_name="$3"
+
+  # - First, strip the 'ci-' prefix from the tag name.
+  local tag_name_raw="$(echo "${tag_name_base}" | sed 's/^ci-//')"
+
+  # - Next form the proper tag name for the given scope.
+  local tag_name="${tag_name_base}"
+
+  if false \
+    || [ "${tag_scope}" = "HEAD" ] \
+    || [ "${tag_scope}" = "branch" ] \
+  ; then
+    # Convert, 'ci-{postfix}' → 'ci-{branch_name}-{postfix}'
+    tag_name="ci-${branch_name}-${tag_name_raw}"
+  elif [ "${tag_scope}" != "project" ]; then
+    # "project" tags are unmunged, but if scope var
+    # says something unknown, that's a dev error.
+    >&2 echo "GAFFE: Unknown tag_scope: ${tag_scope}"
+
+    exit 1
+  fi
+
+  trace_full "- branch_name: ${branch_name}"
+  trace_full "- tag_name: ${tag_name}"
+
+  printf "%s" "${tag_name}"
+}
+
+# ***
+
+# A "HEAD" tag is only valid if on HEAD commit.
+# - This branch followed by all tags but 'ci-inhibit-forever'.
+
+head_tag_found () {
+  local tag_name="$1"
+
+  local head_tag_match="$(git tag --list --points-at HEAD "${tag_name}")"
+
+  [ -n "${head_tag_match}" ]
+}
+
+# A "branch" tag is valid if it's on any commit in the branch.
+# - This code path followed by only the 'ci-inhibit-forever'
+#   tag (for now, says 2023-11-22).
+
+branch_tag_found () {
+  local tag_name="$1"
+  local branch_name="$2"
+
+  local tag_exists=false
+
+  local try_it_the_hard_way=true
+  local try_it_the_easy_way=true  # Or so I'm led to believe
+
+  local branch_tag_match=""
+  local merged_tag_match=""
+
+  [ -n "${tag_name}" ] \
+    || return 1
+
+  if ${try_it_the_hard_way}; then
+    # - The name pattern — ${branch_name} — is ^strict$ w/out wildcards.
+    # - If tag absent, dies: 'error: malformed object name refs/tags/foo'.
+    # - Note this must uses not-fully-qualified branch name (e.g., 'main')
+    #   because refs/heads/<branch> does not work with git-branch (so not
+    #   `git rev-parse --symbolic-full-name HEAD`).
+    branch_tag_match="$(
+      git branch --list --contains "refs/tags/${tag_name}" "${branch_name}" \
+        2> /dev/null
+    )" || true
+  fi
+
+  if ${try_it_the_easy_way}; then
+    # Apparently I didn't read man git-log close enough when I wrote
+    # this code the hard way.
+    merged_tag_match="$(git tag --list --merged HEAD "${tag_name}")"
+  fi
+
+  # Check that you didn't wreck yourself.
+  if true \
+    && ${try_it_the_hard_way} \
+    && ${try_it_the_easy_way} \
+    && [ "${branch_tag_match}" != "${merged_tag_match}" ] \
+  ; then
+    >&2 echo "GAFFE: branch tag sniffers disagree:"
+    >&2 echo "- branch_tag_match: ${branch_tag_match}"
+    >&2 echo "- merged_tag_match: ${merged_tag_match}"
+    >&2 echo "For tag “${tag_nama}” on branch “${branch_name}”"
+
+    exit 1
+  fi
+
+  [ -n "${branch_tag_match}" ] || [ -n "${merged_tag_match}" ]
+}
+
+# A "project" tag is hot if its on any commit,
+# i.e., if it exists.
+
+project_tag_found () {
+  local tag_name="$1"
+
+  local any_tag_match="$(git tag --list "${tag_name}")"
+
+  [ -n "${any_tag_match}" ]
+}
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+# (lb): These functions act in lieu of Bash (or shell) having any
+# sort of object support, and are used to iterate over a list of
+# object values, setting the same local variables with different
+# values each time they're called.
+# - This feels like an abuse of variable scoping (most languages
+#   don't expose a called function's variables or values to the
+#   caller, but the shell does), but I couldn't think of anything
+#   DRYer, or simpler to implement. So like sorry not sorry?
+
+set_tag_locals () {
+  local which_tag="$1"
+
+  # These fcns rely on `local` scoping to set these vars for the caller:
+  #   tag_name, out_name, tag_scope, new_tag_value, skip_if
+
+  # SAVVY: Nothing sets skip_if=true
+  # - But it's available for future generations.
+  skip_if=false
+
+  set_tag_locals_inhibit_cascade
+
+  set_tag_locals_inhibit_forever
+
+  set_tag_locals_cascade_updatedeps
+
+  set_tag_locals_cascade_versioning
+
+  set_tag_locals_inhibit_alpha
+
+  set_tag_locals_inhibit_patch
+
+  # ***
+
+  tag_name="${which_tag}"
+}
+
+is_this_tag_object_specified () {
+  local which_tag="$1"
+  local tag_name="$2"
+  # Caller local: tag_names
+
+  trace_full "which_tag: ${which_tag}"
+  trace_full "tag_name: ${tag_name}"
+
+  # This is a little hacky, but it lets us use 'local' vars like an object:
+  #
+  # On the first call to set_tag_locals, the script compiles the list
+  # of all tag names (which are defined below in the separate fcns).
+  [ -n "${which_tag}" ] || tag_names+=("${tag_name}")
+
+  # On the second call to set_tag_locals, the script wants us to set
+  # the local vars. for a specific tag.
+  #
+  # In this manner we use 'local' vars. in lieu of object, or even
+  # decent associative array support in (Ba)sh.
+  [ -n "${which_tag}" ] && [ "${which_tag}" = "${tag_name}" ]
+}
+
+# ***
+
+set_tag_locals_inhibit_cascade () {
+  # E.g., "ci-{branch}-inhibit-cascade"
+  tag_name="${EAPP_CI_TAG_INHIBIT_CASCADE}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_inhibit_cascade"
+    tag_scope="HEAD"
+    default_value="true"
+    new_tag_value="${EAPP_INHIBIT_CASCADE}"
+    delete_if=${EAPP_DELETE_INHIBIT_CASCADE:-false}
+  fi
+}
+
+set_tag_locals_inhibit_forever () {
+  # E.g., "ci-{branch}-inhibit-forever"
+  tag_name="${EAPP_CI_TAG_INHIBIT_FOREVER}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_inhibit_forever"
+    tag_scope="branch"
+    default_value="false"
+    new_tag_value="${EAPP_INHIBIT_FOREVER}"
+    delete_if=${EAPP_DELETE_INHIBIT_FOREVER:-false}
+  fi
+}
+
+set_tag_locals_cascade_updatedeps () {
+  # E.g., "ci-{branch}-cascade-updatedeps"
+  tag_name="${EAPP_CI_TAG_CASCADE_UPDATEDEPS}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_cascade_updatedeps"
+    tag_scope="HEAD"
+    default_value="skip"
+    new_tag_value="${EAPP_CASCADE_UPDATEDEPS}"
+    delete_if=${EAPP_DELETE_CASCADE_UPDATEDEPS:-false}
+  fi
+}
+
+# EAPP_CASCADE_VERSIONING is:
+# - 'least', 'alpha', 'patch', or 'skip'; or,
+#   as applies to all tags: '' to just read
+#   the tag (and not create or delete it),
+#   or 'false' to remove the tag.
+set_tag_locals_cascade_versioning () {
+  # E.g., "ci-{branch}-cascade-versioning"
+  tag_name="${EAPP_CI_TAG_CASCADE_VERSIONING}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_cascade_versioning"
+    tag_scope="HEAD"
+    default_value="skip"
+    new_tag_value="${EAPP_CASCADE_VERSIONING}"
+    delete_if=${EAPP_DELETE_CASCADE_VERSIONING:-false}
+  fi
+}
+
+set_tag_locals_inhibit_alpha () {
+  # E.g., "ci-inhibit-alpha"
+  tag_name="${EAPP_CI_TAG_INHIBIT_ALPHA}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_inhibit_alpha"
+    tag_scope="project"
+    default_value="false"
+    new_tag_value="${EAPP_INHIBIT_ALPHA}"
+    delete_if=${EAPP_DELETE_INHIBIT_ALPHA:-false}
+  fi
+}
+
+set_tag_locals_inhibit_patch () {
+  # E.g., "ci-inhibit-patch"
+  tag_name="${EAPP_CI_TAG_INHIBIT_PATCH}"
+  if is_this_tag_object_specified "${which_tag}" "${tag_name}"; then
+    out_name="old_inhibit_patch"
+    tag_scope="project"
+    default_value="false"
+    new_tag_value="${EAPP_INHIBIT_PATCH}"
+    delete_if=${EAPP_DELETE_INHIBIT_PATCH:-false}
+  fi
+}
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+TRACE_LITE_ENABLE=${TRACE_LITE_ENABLE:-true}
+TRACE_FULL_ENABLE=${TRACE_FULL_ENABLE:-false}
+
+trace_lite () {
+  ${TRACE_LITE_ENABLE} || return 0
+
+  >&2 echo "$@"
+}
+
+trace_full () {
+  ${TRACE_FULL_ENABLE} || return 0
+
+  >&2 echo "$@"
+}
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #
+
+_NORMAL_EXIT=false
+
+exit_1 () { _NORMAL_EXIT=true; exit 1; }
+
+exit_0 () { _NORMAL_EXIT=true; exit 0; }
+
+exit_cleanup () {
+  if ! ${_NORMAL_EXIT}; then
+    >&2 echo "GAFFE: ${PROG_NAME} exited abnormally!"
+    >&2 echo "- Hint: Enable \`set -x\` and run again..."
+  fi
+}
+
+# ***
+
+main () {
+  set -e
+
+  trap exit_cleanup EXIT
+
+  wrangle_tags "$@"
+
+  # Unhook exit_cleanup.
+  trap - EXIT
+}
+
+if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+  # Being executed, so execute.
+  main "$@"
+fi
+
+unset -f main
+

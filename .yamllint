@@ -1,0 +1,83 @@
+# vim:tw=0:ts=2:sw=2:et:norl:ft=yaml
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+# CXREF:
+#   https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+rules:
+  # While consistent comment indentation itself not a bad thing,
+  # this rule is. It won't let you *follow* indented config with
+  # a comment unless you dedent that comment to the level of the
+  # *next* config in the file. E.g., if you commented the last
+  # config in a file, this rule would force you to dedent that
+  # comment to the first column, like this:
+  #   foo:           -->    foo:            -->     foo:
+  #     bar:         -->      bar:          -->       bar:
+  #       baz:       -->        # baz:      -->     # baz
+  #         - bat    -->        #   -bat    -->     #   -bat
+  comments-indentation: disable
+
+  line-length:
+    # USYNC: (max) line length shared among: black, flake8, isort, doc8, yamllint.
+    max: 88
+
+    # Note that long http links and file names are allowed by default:
+    #   allow-non-breakable-words: true
+    # but yamllint will error if there's more than one space between a
+    # comment character and the start of the link, i.e., no indenting,
+    # and it'll error if you don't break the long line to its own.
+    #
+    # HINT: You can use alt spacing, like Vim digraph `1M` space,
+    # to trick the linter into letting you get away with a long URL
+    # (or any non-breaking string) after indentation or whatnot.
+    # - E.g.,
+    #              This line is all 1M spaces except for real space after comment character.
+    # ↑↑↑↑↑↑↑↑↑↑↑↑↑    ↑    ↑  ↑   ↑  ↑      ↑ these are 1M spaces...... ↑ etc.
+    # ← But there is one leading space immediately after the comment.
+
+    # There's also an inline-mappings variant of non-breakable, but it
+    # seems to apply to data, not comments. You could enable it so:
+    #
+    #   allow-non-breakable-inline-mappings: true
+
+    # level: warning
+
+  # yamllint assumes the 'on' in GH Actions workflows is a truthy value
+  # (along with 'yes', 'no', 'true', 'false', etc.), e.g.,
+  #   on:
+  #     - push
+  # generates the 'truthy' warning, "truthy value should be one of [false, true]".
+  # - There are many ways to ignore this rule.
+  #   - At the line:
+  #       # yamllint disable-line rule:truthy
+  #       on: ...
+  #   - But not checking key values here:
+  #       truthy:
+  #         check-keys: false
+  #   - Or probably the least disruptive and most general, adding a value
+  #     to allowed-values, whose default is:
+  #         allowed-values: ['true', 'false']
+  # CXREF:
+  # https://yamllint.readthedocs.io/en/stable/rules.html#module-yamllint.rules.truthy
+  truthy:
+    allowed-values: ['true', 'false', 'on']
+
+# SAVVY: See what files are linted:
+#   yamllint --list-files .
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+  - '/.yamllint'
+  - '/codecov.yml'
+  - '/.readthedocs.yml'
+  - '/.github/'
+
+ignore:
+  - '/.venv*/'
+  - '/.tox/'

@@ -1,0 +1,259 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+name: Publish release to GitHub
+
+# Invoked from "Checks — Runner" (checks.yml) workflow via job "uses" directive.
+# - Running from checks means this workflow never has to check state -- we
+#   know the tag is a version tag, and that the tag commit has passed checks.
+
+on:
+  workflow_call:
+    inputs:
+      version_tag:
+        required: true
+        type: string
+
+# ***
+
+env:
+  # TRACK: https://github.com/actions/python-versions/releases
+  # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
+  PYTHON_VERSION: 3.11
+
+jobs:
+
+  verify-version-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Tag
+        id: check-is-version-tag
+        # Note that checks.yml only calls this workflow with version tags,
+        # so this check is unnecessary (always true).
+        run: |
+          if [[ ${VERSION_TAG} =~ ^v?[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "is_version_tag=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+
+      - name: Report Maybe
+        if: steps.check-is-version-tag.outputs.is_version_tag == 'true'
+        run: echo "Version tag detected"
+
+    outputs:
+      is_version_tag: ${{ steps.check-is-version-tag.outputs.is_version_tag }}
+
+  release-github:
+    runs-on: ubuntu-latest
+
+    needs: verify-version-tag
+    if: needs.verify-version-tag.outputs.is_version_tag == 'true'
+
+    env:
+      TOKENTEST: ${{ secrets.TEST_TOKEN }}
+
+    permissions:
+      # For `gh release view`, else you see: "HTTP 403: Resource not accessible
+      # by integration (https://api.github.com/repos/doblabs/easy-as-pypi/releases)"
+      contents: 'write'
+
+    steps:
+      - name: Probe version
+        run: echo "VERSION_TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Check if prerelease
+        id: check-if-prerelease
+        # Note the v?: Don't care!
+        run: |
+          is_prerelease=false
+          if ! echo "${VERSION_TAG}" \
+            | grep -q -E -e "^v?[0-9]+\.[0-9]+\.[0-9]+$" \
+          ; then
+            is_prerelease=true
+            echo "PRERELEASE=--prerelease" >> "${GITHUB_ENV}"
+          fi
+          echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
+
+      - name: Announcement
+        run: |
+          [ -z "${PRERELEASE}" ] \
+            && prerelease_msg="" \
+            || prerelease_msg=" (prerelease)"
+          echo "Processing ${VERSION_TAG} tag${prerelease_msg}"
+
+      # ***
+
+      # Checkout the default branch and check the version tag is on HEAD.
+      # - This is an overly suspicious check. We could support releasing
+      #   whatever commit was tagged, but until a developer presents us
+      #   with a compelling use case for such a situation, we don't
+      #   support it.
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # If pre-release, use alternative branch if defined.
+          ref: ${{
+            steps.check-if-prerelease.outputs.is_prerelease == 'true'
+            && vars.PRERELEASE_BRANCH
+            || github.event.repository.default_branch }}
+          # Fetch all history, so rev-parse HEAD is real HEAD.
+          fetch-depth: 0
+
+      # Fail workflow unless workflow event GITHUB_SHA matches branch HEAD.
+      # - Note that, sure, the user might have pushed more commits to HEAD
+      #   since they version-tagged. So maybe that's a legit use case, and
+      #   this check is overkill. And maybe someday we'll disable this check.
+      #   - But until that day when this check actually annoys you, leave it.
+      - name: Verify branch HEAD is what was tagged
+        run: |
+          echo "test \"${GITHUB_SHA}\" = \"$(git rev-parse HEAD)\""
+          [ "${GITHUB_SHA}" = "$(git rev-parse HEAD)" ] || exit 1
+
+      # Similar to last check, this might be overkill, but check the version
+      # exists on the HEAD commit, too.
+      - name: Verify branch HEAD is what was versioned
+        run: |
+          head_tag_match="$(git tag --list --points-at HEAD "${VERSION_TAG}")"
+          echo "test \"${head_tag_match}\" = \"${VERSION_TAG}\""
+          ([ -n "${head_tag_match}" ] \
+           && [ "${head_tag_match}" = "${VERSION_TAG}" ] \
+          ) || exit 1
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+
+      # ***
+
+      - name: Fail if already released
+        run: |
+          echo "gh release view \"$VERSION_TAG\""
+          ! gh release view "$VERSION_TAG" \
+            || exit 1
+        env:
+          GH_TOKEN: ${{ secrets.PAT__PUBLIC_REPO }}
+
+      # ***
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Install poetry-dynamic-versioning
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        id: setup-python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'poetry'
+
+      # NOICE: DRY: Use `make --eval` to add temp. make target that prints
+      # the pre-release pyproject.toml directory (avoids USYNC/hardcoding).
+      - name: Determine pyproject.toml to use (normal or alpha)
+        run: |
+          pyproject_dir="."
+          if [ "${PRERELEASE}" = "--prerelease" ]; then
+            pyproject_dir="$(
+              make \
+                --eval='print-var: ; @echo $(PYPROJECT_PRERELEASE_DIR)' \
+                print-var
+            )"
+          fi
+          echo "PYPROJECT_DIR=${pyproject_dir}" >> "${GITHUB_ENV}"
+
+      - name: Verify Poetry assets — pyproject.toml and poetry.lock
+        run: |
+          assets_exist () {
+            local pyproject_dir="${1:-.}"
+
+            [ -f "${pyproject_dir}/pyproject.toml" ] \
+            && [ -f "${pyproject_dir}/poetry.lock" ]
+          }
+
+          if [ "${PRERELEASE}" = "--prerelease" ]; then
+            if ! assets_exist "${PYPROJECT_DIR}"; then
+              >&2 echo "ERROR: Where are the ${PYPROJECT_DIR} Poetry assets?"
+              >&2 echo "- Missing pyproject.toml and/or poetry.lock"
+              >&2 echo "- HINT: Run the update-deps.yml workflow"
+              >&2 echo "  - OR: Run \`make prepare-poetry-prerelease\`"
+              >&2 echo "        and then commit the two files to the repo"
+
+              exit 1
+            fi
+          elif ! assets_exist; then
+            >&2 echo "ERROR: Missing pyproject.toml and/or poetry.lock"
+            >&2 echo "- HINT: Run the update-deps.yml workflow"
+            >&2 echo "  - OR: Run \`make install\`"
+            >&2 echo "        and then commit the lock file to the repo"
+
+            exit 1
+          fi
+
+      # Note that `poetry -C "${PYPROJECT_DIR}" build` won't work if it
+      # references anything from root, so clobber root's lock and toml.
+      - name: Prepare Pre-release Poetry assets — pyproject.toml and poetry.lock
+        if: env.PRERELEASE == '--prerelease'
+        run: |
+          command cp -f "${PYPROJECT_DIR}/poetry.lock" "poetry.lock"
+          command cp -f "${PYPROJECT_DIR}/pyproject.toml" "pyproject.toml"
+
+      - name: Poetry build
+        run: |
+          poetry build
+
+      - name: Probe filename
+        run: |
+          echo "ASSET_BDIST=$(command echo dist/*.whl)" >> "$GITHUB_ENV"
+          echo "ASSET_SDIST=$(command echo dist/*.tar.gz)" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Inspect work
+        run: |
+          echo
+          echo "ASSET_BDIST: $ASSET_BDIST"
+          ls -la "$ASSET_BDIST"
+          echo
+          echo "ASSET_SDIST: $ASSET_SDIST"
+          ls -la "$ASSET_SDIST"
+
+      # ***
+
+      # CXREF: https://cli.github.com/manual/gh_release_create
+      # https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
+      #
+      # Options:
+      #   -p/--prerelease     marks release as prerelease (see $PRERELEASE).
+      #   --verify-tag        aborts release if the tag doesn't already exist
+      #                       (but that should be impossible).
+      - name: Create release
+        run: |
+          echo "gh release create \"$VERSION_TAG\" \
+            --title \"$VERSION_TAG\" \
+            $PRERELEASE \
+            --verify-tag \
+            $ASSET_BDIST#bdist — $(basename $ASSET_BDIST) \
+            $ASSET_SDIST#sdist — $(basename $ASSET_SDIST)"
+          gh release create "$VERSION_TAG" \
+            --title "$VERSION_TAG" \
+            $PRERELEASE \
+            --verify-tag \
+            "$ASSET_BDIST#bdist — $(basename $ASSET_BDIST)" \
+            "$ASSET_SDIST#sdist — $(basename $ASSET_SDIST)"
+        env:
+          # Note that the built-in token doesn't generate workflow events.
+          # - E.g.,
+          #     GH_TOKEN: ${{ github.token }}
+          #   will not signal on.release.
+          # - Instead, use a personal access token (a classic token
+          #   with public_repo permission), which evokes the trigger.
+          # CXREF: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+          GH_TOKEN: ${{ secrets.PAT__PUBLIC_REPO }}
+
+# ***

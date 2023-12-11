@@ -1,0 +1,619 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# CXREF:
+#
+#   https://pypi.org/project/easy-as-pypi/
+#   https://test.pypi.org/project/easy-as-pypi/
+
+---
+
+name: Publish release to PyPI
+
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#name
+#  Release on PyPI — ${{ github.ref_name }}
+# run-name: 🚀 — 🥧² — ${{ github.ref_name }}
+run-name: 🥧² — PyPI — ${{ github.ref_name }} ${{
+  github.event_name == 'workflow_dispatch' && '(via User)' || '' }}
+
+# This workflow reacts to the 'release' event, which sets:
+#   GITHUB_SHA — Last commit in the tagged release
+#   GITHUB_REF — Tag ref of release refs/tags/<tag_name>
+#
+# We also support the manually-triggered workflow_dispatch event, in which
+# case the workflow reads the version tag from the HEAD of the default branch.
+#
+# CXREF:
+#   https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#using-event-activity-types
+#   https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
+#
+# - Per the docs, we want the 'published' event, and not, say 'created' or 'released':
+#   - "If you want a workflow to run when stable and pre-releases publish,
+#      subscribe to published instead of released and prereleased."
+#     CXREF: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#release
+#   - Two other events, 'created' and 'released', are related (though with
+#     somewhat confusing names, e.g., I get that a 'release' might be 'created'
+#     or 'published', but what does it mean when a 'release' is 'released'?).
+#     - 'created':   "A draft was saved, or a release or pre-release was published
+#                     without previously being saved as a draft."
+#     - 'published': "A release, pre-release, or draft of a release was published."
+#     - 'released':  "A release was published, or a pre-release changed to a release."
+#     CXREF: https://docs.github.com/en/webhooks-and-events/webhooks/webhook-events-and-payloads#release
+#
+# - Note, too, I've seen this written without the 'types' entry, e.g.,:
+#     on:
+#       release:
+#         - published
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+
+# ***
+
+env:
+  # TRACK: https://github.com/actions/python-versions/releases
+  # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
+  PYTHON_VERSION: 3.11
+
+jobs:
+  prepare-publish:
+    runs-on: ubuntu-latest
+
+    # DUNNO/2023-05-26: `gh release view|download` works fine in this job
+    # without additional permissions, but in the 'needs' job, later, it
+    # needs:
+    #   permissions:
+    #     # For `gh release view|download`.
+    #     contents: write
+    # - Is there something about 'needs' jobs that they have fewer
+    #   permissions? (Also weird that the 'permissions: write-all'
+    #   trick doesn't work in the 'needs' job.)
+
+    env:
+      # CXREF: thegittinsgood/git-smart: GITSMART_RE_VERSPARTS.
+      VERSPARTS: "(v)?([0-9]+)\\.([0-9]+)(\\.([0-9]+)([^0-9].*?)?([0-9]+)?)?"
+
+    steps:
+      # REFER: GITHUB_REF is the branch ref or tag that triggered the workflow run.
+      # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+      - name: Probe version tag (not workflow_dispatch)
+        run: |
+          VERSION_TAG="${GITHUB_REF#refs/tags/}"
+
+          echo "VERSION_TAG=${VERSION_TAG} [${GITHUB_REF}]"
+
+          if [ "${VERSION_TAG}" = "${GITHUB_REF}" ]; then
+            >&2 echo "ERROR: Not a tag ref: ${GITHUB_REF}"
+
+            exit 1
+          fi
+
+          if ! echo "${VERSION_TAG}" | grep -q -E -e "${VERSPARTS}"; then
+            >&2 echo "ERROR: Not a version tag: ${GITHUB_REF}"
+
+            exit 1
+          fi
+
+          echo "VERSION_TAG=${VERSION_TAG}" >> "${GITHUB_ENV}"
+        shell: bash
+        if: github.event_name != 'workflow_dispatch'
+
+      - name: Checkout repository (not workflow_dispatch)
+        uses: actions/checkout@v4
+        if: github.event_name != 'workflow_dispatch'
+
+      - name: Checkout repository (is workflow_dispatch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          # Grab everything, because we might need to switch branches
+          # in the next step.
+          fetch-depth: 0
+        if: github.event_name == 'workflow_dispatch'
+
+      # Check the default branch HEAD for a version tag.
+      # - If it's not found, try the pre-release branch.
+      # - T_M_I: Note there are 2 branches that might be version-tagged:
+      #     the main, default branch; and
+      #     the 'liminal' (pre-release) branch.
+      #   - Within the main branch, if any commit has a pre-release version,
+      #     that commit *also* has a normal version.
+      #   - In the other, 'liminal', branch, it's the other way around: any
+      #     commit might only have a pre-release version, or nothing, but any
+      #     commit in the 'liminal' branch with a normal version also has a
+      #     pre-release version.
+      - name: Probe version tag (is workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PRERELEASE_BRANCH: ${{ vars.PRERELEASE_BRANCH }}
+        run: |
+          print_version_tags () {
+            git tag --list --points-at HEAD \
+              | grep -E -e "${VERSPARTS}"
+          }
+
+          branch_name="$(git rev-parse --abbrev-ref=loose HEAD)"
+
+          version_tags="$(print_version_tags)"
+
+          if [ -z "${version_tags}" ] && [ -n "${PRERELEASE_BRANCH}" ]; then
+            # Try the pre-release branch.
+            git checkout ${PRERELEASE_BRANCH}
+
+            branch_name="${PRERELEASE_BRANCH}"
+
+            version_tags="$(print_version_tags)"
+          fi
+
+          if [ -z "${version_tags}" ]; then
+            >&2 echo "ERROR: Nothing to do: HEAD(s) not versioned"
+
+            exit 1
+          fi
+
+          echo "Version tag(s) on “${branch_name}”: ${version_tags}"
+
+          # If multiple versions tagged, choose the largest.
+          # - Note this is quite unnecessary, as this use case (a user
+          #   deliberately initiating release-pypi from the GitHub Actions
+          #   website, or via `gh workflow run`, notwithstanding there
+          #   being multiple versions on the latest commit) is both rare
+          #   and not at all critical. The majority, if not all, PyPI
+          #   releases will be due to the 'release' event, not workflow-D.
+          # Note that `sort -V|--version-sort` sorts pre-release before
+          # their normal counterparts, so it's sorta useless, and we'll
+          # just grab the "largest" 2 versions and then do a simple pre-
+          # release vs. normal comparison, knowing that, if the user is
+          # playing by the rules, there will only be at most 2 versions
+          # tagged.
+          if $(echo "${version_tags}" | wc -l) -lt 2; then
+            VERSION_TAG="${version_tags}"
+          else
+            possible_versions="$(echo "${version_tags}" | sort -V -r | head -2)"
+            possible_largest="$(echo "${possible_versions}" | head -1)"
+            other_possibility="$(echo "${possible_versions}" | tail -1)"
+
+            if [[ "${possible_largest}" =~ "${other_possibility}"* ]]; then
+              # Means ${possible_largest} is a pre-release of ${other_possibility},
+              # e.g., [[ 1.2.4-alpha.1 =~ 1.2.4* ]]
+              possible_largest="${other_possibility}"
+            fi
+
+            VERSION_TAG="${possible_largest}"
+          fi
+
+          echo "VERSION_TAG=${VERSION_TAG} [${version_tags}]"
+
+          echo "VERSION_TAG=${VERSION_TAG}" >> "${GITHUB_ENV}"
+
+      # MEH: We could support HEAD not being tagged (e.g., user wants to
+      # tag and release previous commit) if we looked instead for highest
+      # version tag. But it's a handful of shell code to copy here.
+      # - CXREF: https://github.com/landonb/sh-git-nubs#🌰
+      #     ~/.kit/sh/sh-git-nubs/bin/git-nubs.sh
+      #       git_latest_version_tag
+      - name: Fail if VERSION_TAG undiscoverable
+        run: exit 1
+        if: env.VERSION_TAG == ''
+
+      # Double-check tag is version-formatted, esp. if 'workflow_dispatch'
+      # (which got whatever was tagged on HEAD).
+      - name: Verify version — ${{ env.VERSION_TAG }}
+        run: |
+          echo "${VERSION_TAG}" | grep -q -E -v "^v?[0-9]+\.[0-9]+\.[0-9]+.*$" \
+            && echo "ERROR: Not a version tag: ${VERSION_TAG}" \
+            && exit 1 \
+            || true
+
+      - name: Check if prerelease
+        run: |
+          (echo "${VERSION_TAG}" | grep -q -E -e "^v?[0-9]+\.[0-9]+\.[0-9]+$" \
+           && echo "PRERELEASE=false" || echo "PRERELEASE=true") >> "${GITHUB_ENV}"
+
+      - name: Strip v-prefix
+        run: |
+          echo "VERSION=${VERSION_TAG#v}" >> "${GITHUB_ENV}"
+        shell: bash
+
+      - name: Set pipx index URL
+        run: |
+          test_pypi_url="https://test.pypi.org/simple"
+          # REFER: https://packaging.python.org/en/latest/guides/using-testpypi/
+          # "To allow pip to also download packages from PyPI, point --extra-index-url
+          #  to PyPI. Useful when the package you’re testing has dependencies."
+          # BWARE: Spaces in --pip-args will work locally, but on GHA, even
+          #        using quotes, pipx will die on args complaint.
+          #        - So use '=' to keep --pip-args a single word.
+          # Note we need --extra-index-url otherwise pip only tries to find
+          # packages on the test server, which fails if any are missing (or
+          # yanked, like appdirs==1.4.4).
+          extra_index_arg="--extra-index-url=https://pypi.org/simple/"
+          [ -z "${extra_index_arg}" ] \
+            && pipx_pip_args="" \
+            || pipx_pip_args="--pip-args=${extra_index_arg}"
+
+          ! ${PRERELEASE} \
+            && index_url_pip="" \
+            || index_url_pip="--index-url ${test_pypi_url} ${extra_index_arg}"
+          echo "INDEX_PIP=${index_url_pip}" >> "${GITHUB_ENV}"
+
+          ! ${PRERELEASE} \
+            && index_url_pipx="" \
+            || index_url_pipx="--index-url ${test_pypi_url} ${pipx_pip_args}"
+          echo INDEX_PIPX=${index_url_pipx} >> "${GITHUB_ENV}"
+        shell: bash
+
+      # MAYBE/2023-11-11: Prefer `fromJSON(shell-bool)` vs. `== 'true|false'`?
+      - name: Announcement — ${{
+          fromJSON(env.PRERELEASE) && 'Pre-release' || 'Normal release' }}
+        run: |
+          ! ${PRERELEASE} \
+            && prerelease_msg="" \
+            || prerelease_msg=" (prerelease)"
+          echo "Pushing ${VERSION_TAG} to PyPI${prerelease_msg}"
+
+      # ***
+
+      # github.repository is, e.g.,"doblabs/easy-as-pypi".
+      - name: Probe package name
+        run: echo "PACKAGE_NAME=$(basename ${{ github.repository }})" >> "${GITHUB_ENV}"
+        shell: bash
+
+      # # Local, and GHA: 1.2.0.
+      # - name: pipx --version
+      #   run: pipx --version
+      #   shell: bash
+
+      # On GHA: pipx: error: unrecognized arguments: easy-as-pypi==1.1.1a20
+      - name: Check if previously released
+        run: |
+          IS_RELEASED=false
+          echo "pip install ${INDEX_PIP} ${PACKAGE_NAME}==${VERSION}"
+          pip install ${INDEX_PIP} ${PACKAGE_NAME}==${VERSION} \
+            && IS_RELEASED=true
+          echo "IS_RELEASED=${IS_RELEASED}" >> "${GITHUB_ENV}"
+        shell: bash
+
+      # Determine if previously released (and skip re-releasing if so).
+      - name: View release
+        run: |
+          echo "gh release view ${VERSION_TAG}"
+          gh release view ${VERSION_TAG}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        if: env.IS_RELEASED == 'true'
+
+      # Here's how you might publish using Poetry, but this approach
+      # requires a PyPI token.
+      # - We instead use the pypa/ action (see next job), which uses
+      #   a "trusted publisher" approach, where GitHub and PyPI manage
+      #   the OIDC token(s) automatically.
+      # - Oddly, the `gh release download` works here without permissions,
+      #   e.g., without this:
+      #     permissions:
+      #       contents: write
+      #   unlike the next job, which needs those permissions to call it.
+      #
+      #     - name: Download release
+      #       run: |
+      #         gh release download ${VERSION_TAG} -D dist/
+      #       env:
+      #         GH_TOKEN: ${{ github.token }}
+      #       if: env.IS_RELEASED == 'false'
+      #
+      #     - name: Install poetry
+      #       run: pipx install poetry
+      #       if: env.IS_RELEASED == 'false'
+      #
+      #     - name: Install poetry-dynamic-versioning
+      #       run: poetry self add "poetry-dynamic-versioning[plugin]"
+      #       if: env.IS_RELEASED == 'false'
+      #
+      #     # CXREF: https://python-poetry.org/docs/repositories/
+      #     - name: Poetry publish package
+      #       env:
+      #         # 2 ways to token: Use config setting:
+      #         #  PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      #         # Or use their environ:
+      #         POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
+      #       run: |
+      #         # poetry config pypi-token.pypi ${PYPI_TOKEN}
+      #         repository=""
+      #         if ${PRERELEASE}; then
+      #           poetry config repositories.testpypi https://test.pypi.org/legacy/
+      #           repository="--repository testpypi"
+      #         fi
+      #         echo
+      #         echo "poetry config --list"
+      #         poetry config --list
+      #         echo
+      #         echo "poetry publish ${repository}"
+      #         poetry publish ${repository}
+      #       if: env.IS_RELEASED == 'false'
+
+      - name: Store variables for next job
+        id: set_outputs
+        run: |
+          echo "INDEX_PIP=${INDEX_PIP}" >> "${GITHUB_OUTPUT}"
+          echo "INDEX_PIPX=${INDEX_PIPX}" >> "${GITHUB_OUTPUT}"
+          echo "IS_RELEASED=${IS_RELEASED}" >> "${GITHUB_OUTPUT}"
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "PRERELEASE=${PRERELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "VERSION_TAG=${VERSION_TAG}" >> "${GITHUB_OUTPUT}"
+
+          echo "GITHUB_OUTPUT:"
+          cat "${GITHUB_OUTPUT}" | sed 's/^/  /'
+
+    outputs:
+      INDEX_PIP: ${{ steps.set_outputs.outputs.INDEX_PIP }}
+      INDEX_PIPX: ${{ steps.set_outputs.outputs.INDEX_PIPX }}
+      IS_RELEASED: ${{ steps.set_outputs.outputs.IS_RELEASED }}
+      PACKAGE_NAME: ${{ steps.set_outputs.outputs.PACKAGE_NAME }}
+      PRERELEASE: ${{ steps.set_outputs.outputs.PRERELEASE }}
+      VERSION: ${{ steps.set_outputs.outputs.VERSION }}
+      VERSION_TAG: ${{ steps.set_outputs.outputs.VERSION_TAG }}
+
+  # ***
+
+  wrangle-ci-tags:
+    name: Wrangle (read) CI tags
+    uses: ./.github/workflows/ci-tags-wrangle.yml
+    needs: [prepare-publish]
+    if: ${{ ! cancelled()
+      && needs.prepare-publish.result == 'success'
+      && needs.prepare-publish.outputs.IS_RELEASED == 'false' }}
+    with:
+      prerelease: ${{ needs.prepare-publish.outputs.PRERELEASE == 'true' }}
+
+  # ***
+
+  poetry-publish:
+
+    runs-on: ubuntu-latest
+
+    needs: [prepare-publish, wrangle-ci-tags]
+
+    # Easiest approach would be to skip if IS_RELEASED, e.g.,
+    #   if: needs.prepare-publish.outputs.IS_RELEASED == 'false' && ...
+    # but if this job is skipped, so is smoke-test, which 'needs'
+    # this job. So we'll skip the individual steps, and not the job.
+    # - Unfortunately, pypa/gh-action-pypi-publish@release/v1 still builds
+    #   its image, even when its step(s) skipped, which takes a few moments.
+    if: ${{ ! cancelled()
+      && needs.prepare-publish.result == 'success'
+      && needs.prepare-publish.outputs.IS_RELEASED == 'false'
+      && needs.wrangle-ci-tags.outputs.old-inhibit-release-pypi == 'false' }}
+
+    # CXREF: PyPI recommends using an environment ('release')
+    #        to keep non-admin organization members from publishing.
+    # - BWARE: The environment configuration's branch protection rules
+    #   apply to tags, too, e.g.,
+    #     Branch "v1.1.0a2" is not allowed to deploy to release due to
+    #     environment protection rules.
+    #   So if you enable branch protection rules, add 'v*' rules for tags.
+    #
+    # https://github.com/doblabs/easy-as-pypi/settings/environments
+    # https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#using-an-environment
+    # https://docs.pypi.org/trusted-publishers/using-a-publisher/
+    # https://test.pypi.org/manage/account/publishing/
+    #   https://pypi.org/manage/account/publishing/
+    environment: release
+
+    # DUNNO/2023-05-26: I was missing 'contents: write' (`gh release view`
+    # was reporting 'release not found', very misleading), so I tried the
+    # 'permissions: write-all' trick, but that didn't fix it. Surprisingly.
+    # - tl;dr: Don't expect 'write-all' to work like you expect.
+    permissions:
+      # For `gh release view|download`.
+      contents: write
+      # Mandatory permission for "trusted publishing" (PyPI action).
+      id-token: write
+
+    env:
+      PRERELEASE: ${{ needs.prepare-publish.outputs.PRERELEASE }}
+      VERSION_TAG: ${{ needs.prepare-publish.outputs.VERSION_TAG }}
+
+    steps:
+      - name: Checkout repository (for gh)
+        uses: actions/checkout@v4
+        # Skip: No need to checkout ${{ vars.PRERELEASE_BRANCH }}
+        #       if pre-release; we just need repo for `gh` command.
+
+      # Note that `gh status` does not work here, prints error:
+      #   could not load notifications: could not get notifications:
+      #   HTTP 403: Resource not accessible by integration
+      # (https://api.github.com/notifications?all=true&participating=true&per_page=100)
+      # - This suggests a permissions error, but 'permissions: write-all'
+      #   didn't resolve it (though 'permissions: write-all' didn't make
+      #   `gh release view` work either (had to use 'contents: write').
+      #   Which makes it seem like write-all does not, in fact, apply
+      #   'write' access to all permissions (and shouldn't be relied upon
+      #   for debugging)).
+      #   - I also tried alt. GH_TOKEN: ${{ secrets.PAT__PUBLIC_REPO }}
+      #     like some people suggested (using PAT instead of temp token),
+      #     but `gh status` still doesn't work for me from this workflow.
+      - name: Download release
+        run: |
+          # Won't work:
+          #  gh status
+          echo "gh release view ${VERSION_TAG}"
+          gh release view ${VERSION_TAG}
+          echo "gh release download ${VERSION_TAG} -D dist/"
+          gh release download ${VERSION_TAG} -D dist/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Inspect dist/
+        run: echo && echo dist/ && ls -la dist/
+
+      # ***
+
+      # REFER:
+      #   https://github.com/marketplace/actions/pypi-publish
+      #   https://docs.pypi.org/trusted-publishers/using-a-publisher/
+      #   https://github.com/pypa/gh-action-pypi-publish
+
+      - name: Publish package distributions to test.PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+        # Only publish pre-release packages to test.PyPI.
+        #
+        # - It's not prudent to publish normal packages to test.PyPI,
+        #   because the normal package was made from a normal build,
+        #   and the normal build only includes normal sources.
+        #   - That is, the `poetry build` was run on the main branch,
+        #     and its pyproject.toml uses deps from normal PyPI.
+        #     - And if we post such a project to test.PyPI, whose deps
+        #       might ref older versions than the current alpha deps,
+        #       I'd assume there'd be chayos. Maybe package versions
+        #       downgrading, or Poetry failing because deps conflicts,
+        #       I guess I'm not sure, but it smells like danger.
+        #   - And note that pip uses the first package index it finds
+        #     that has the source. I.e., pip *does not* search multiple
+        #     indices and pick the largest-version source.
+        # - So for either type or release cascade, whether 'alpha'
+        #   or 'patch', we always publish to the same package index.
+        if: env.PRERELEASE == 'true'
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Unlike test.PyPI, only publish normal releases to PyPI proper,
+        # never alphas.
+        if: env.PRERELEASE == 'false'
+
+  # ***
+
+  sleep-before-smoking:
+    name: Wait for release to propagate...
+
+    runs-on: ubuntu-latest
+
+    needs: [prepare-publish, poetry-publish]
+
+    # Note 'if' skipped if any needs skipped, unless always() or cancelled().
+    if: ${{ ! cancelled()
+      && needs.prepare-publish.result == 'success'
+      && (needs.poetry-publish.result == 'success'
+          || (needs.poetry-publish.result == 'skipped'
+              && needs.prepare-publish.outputs.IS_RELEASED == 'true'
+             )
+         ) }}
+
+    steps:
+      # Wait for PyPI.
+      # - You'll see the new release on the web interface pretty much
+      #   immediately, but it takes a bit for pip to find it (~12 sec).
+      # - SAVVY/2023-10-08: Huh, 17s not always enough?
+      - name: Sleep for 13 seconds
+        run: sleep 13s
+        shell: bash
+        if: needs.prepare-publish.outputs.IS_RELEASED == 'false'
+
+  # ***
+
+  # This is a kludge — and while not as rare as a 29 in cribbage, it's
+  # not everyday you get to craft a kludge.
+  #
+  # - The smoke-test code was originally here, or at least it was
+  #   meant to be here.
+  #
+  #   But no matter how long the sleep (and you need to sleep > ~12 sec.
+  #   after publishing to PyPI before you can pip-install a new version),
+  #   be it 15, 30, 60, or 300 secs., `pip(x) install` would always fail,
+  #   complaining "Could not find a version that satisfies...."
+  #
+  #   - Here's the kludge: Run the workflow again, but in a fresh context.
+  #
+  #     - Note that merely making a 'uses' job doesn't work, as reusable
+  #       workflows run within the same context as the caller.
+  #
+  #     - Note, too, there might be a way to get around this within the
+  #       same workflow. (I tried `pip cache remove ${PACKAGE_NAME}`,
+  #       which removes nothing, because no wheels files downloaded,
+  #       not surprising, but worth a shot.)
+  #
+  #     - REFER: This feels similar to `poetry cache clear PyPI --all`,
+  #       when `poetry update` doesn't see a new release, but Poetry
+  #       is not involved here.
+
+  # - DUNNO/2023-10-08: I ran this workflow manually, and pipx-install
+  #   installed the version. But then in the new workflow, pipx-install
+  #   failed (on the exact same command). I re-ran the workflow, and then
+  #   it worked.
+  #   - Is this a race condition? Do we need to sleep longer?
+  #     Is GHA recycling (Python) environments and doing this?
+
+  smoke-test-runner:
+    runs-on: ubuntu-latest
+
+    needs: [prepare-publish, poetry-publish, sleep-before-smoking]
+
+    if: ${{ ! cancelled()
+      && !contains(needs.*.result, 'failure')
+      && (needs.poetry-publish.result == 'success'
+          || (needs.poetry-publish.result == 'skipped'
+              && needs.prepare-publish.outputs.IS_RELEASED == 'true'
+             )) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # Skip: No need to checkout ${{ vars.PRERELEASE_BRANCH }}
+        #       if pre-release; we just need repo for `gh` command.
+
+      # # REFER: https://cli.github.com/manual/gh_workflow_run
+      # - name: Re-run this workflow...
+      #   # See also workflow ID
+      #   run: |
+      #     echo "gh workflow run 'Publish release to PyPI'"
+      #     gh workflow run 'Publish release to PyPI'
+      #   env:
+      #     GH_TOKEN: ${{ github.token }}
+
+      # REFER: https://cli.github.com/manual/gh_workflow_run
+      - name: Run external smoke-test workflow
+        run: |
+          # USYNC: Use the same name as the workflow.
+          # - Search for: 'PyPI Smoke test'
+          workflow_name="PyPI Smoke test"
+          echo "gh workflow run \"${workflow_name}\""
+          gh workflow run "${workflow_name}" \
+            -f "INDEX_PIP=${INDEX_PIP}" \
+            -f "INDEX_PIPX=${INDEX_PIPX}" \
+            -f "PACKAGE_NAME=${PACKAGE_NAME}" \
+            -f "VERSION=${VERSION}" \
+            -f "PRERELEASE=${PRERELEASE}"
+          #
+          # echo "... | gh workflow run release-smoke-test.yml --json"
+          # # Doesn't like double-quotes outside, singles inside:
+          # echo "{
+          #   'INDEX_PIP': '${INDEX_PIP}',
+          #   'INDEX_PIPX': '${INDEX_PIPX}',
+          #   'PACKAGE_NAME': '${PACKAGE_NAME}',
+          #   'VERSION': '${VERSION}'
+          # }" | gh workflow run release-smoke-test.yml --json
+          # #   could not parse provided JSON:
+          # #   invalid character '\'' looking for beginning of object key string
+          # # - But then, what \" escape all the keys and values? Ugh.
+          # echo '{
+          #   \"INDEX_PIP\": \"${INDEX_PIP}\",
+          #   \"INDEX_PIPX\": \"${INDEX_PIPX}\",
+          #   \"PACKAGE_NAME\": \"${PACKAGE_NAME}\",
+          #   \"VERSION\": \"${VERSION}\"
+          # }' | gh workflow run release-smoke-test.yml --json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INDEX_PIP: ${{ needs.prepare-publish.outputs.INDEX_PIP }}
+          INDEX_PIPX: ${{ needs.prepare-publish.outputs.INDEX_PIPX }}
+          PACKAGE_NAME: ${{ needs.prepare-publish.outputs.PACKAGE_NAME }}
+          VERSION: ${{ needs.prepare-publish.outputs.VERSION }}
+          PRERELEASE: ${{ needs.prepare-publish.outputs.PRERELEASE }}
+
+# ***

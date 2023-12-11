@@ -1,0 +1,18 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+# CXREF:
+#  https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+
+---
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    # Location of package manifests
+    directory: "/"
+    schedule:
+      interval: "weekly"

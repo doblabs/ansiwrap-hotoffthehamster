@@ -1,0 +1,236 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+name: Release Cascade — Dispatch
+
+run-name: 👣 — Cascade — 1.) Dispatch ${{
+  inputs.cascade-updatedeps == '' && '(Smoke-tested)' || '(via User)' }}
+
+on:
+  # Via release-smoke-test.yml after PyPI release, which doesn't
+  # set inputs, b/c we'll read CI tags herein.
+  # - Or via update-merged.yml, if nothing new was released (no PR,
+  #   no new version tag, no GH or PyPI release or smoke test),
+  #   in which case CI tags are not set but these 2 inputs are.
+  # - BWARE: When both 'skip', we're at the nested reusable workflow limit
+  #   imposed by GH Actions, which is 3, i.e., 1.yml can call 2.yml, which
+  #   uses 3.yml, which uses 4.yml, but 4.yml is not allowed to call yet
+  #   another reusable workflow.
+  #   - In this case, update-deps (1) calls update-merged (2) directly
+  #     if cascade-updatedeps is 'skip'. Then update-merged (2) calls
+  #     spread-updates (3) (this workflow) if cascade-versioning
+  #     is 'skip'. And then, below, this workflow (3) calls ('uses')
+  #     ci-tags-wrangle (4), which is the max depth!
+  #     - SAVVY: You can use `gh workflow run` to call a workflow
+  #       without it being nested (which shows up as a separate
+  #       workflow run under GH Actions).
+  #   - REFER:
+  # https://docs.github.com/en/actions/using-workflows/reusing-workflows#nesting-reusable-workflows
+  workflow_call:
+    inputs:
+      prerelease:
+        type: boolean
+        default: false
+        # required: true
+
+      # ***
+
+      cascade-updatedeps:
+        type: string
+        # Use empty string to fallback Git tag value if input not set.
+        default: ''
+
+      cascade-versioning:
+        type: string
+        # Use empty string to fallback Git tag value if input not set.
+        default: ''
+
+  # Via GitHub Actions website button
+  # - Note user should really just go to the downstream repo and use
+  #   its start-cascade.yml workflow_dispatch to start the cascade.
+  #   - But this is convenient for testing that *this* module works
+  #     without having to start the CI at start-cascade.yml and then
+  #     wait for it to run through to this workflow.
+  workflow_dispatch:
+    inputs:
+      cascade-updatedeps:
+        description: 'Cascade poetry-update'
+        type: choice
+        options:
+          - 'full'
+          - 'ours'
+          - 'skip'
+        default: 'skip'
+
+      cascade-versioning:
+        description: 'Cascade version bump'
+        type: choice
+        options:
+          - 'alpha'
+          - 'patch'
+          - 'skip'
+        default: 'skip'
+
+# ***
+
+env:
+  PRERELEASE: ${{
+    (inputs.prerelease || inputs.cascade-versioning == 'alpha')
+    && 'true' || 'false' }}
+
+# ***
+
+jobs:
+  # `env.` doesn't work from within `with:`, so kluge it.
+  env-outputs:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "PRERELEASE: ${PRERELEASE}"
+    outputs:
+      prerelease: ${{ env.PRERELEASE }}
+
+  # ***
+
+  wrangle-ci-tags:
+    name: Wrangle (read) CI tags
+    uses: ./.github/workflows/ci-tags-wrangle.yml
+    needs: [env-outputs]
+    with:
+      prerelease: ${{ needs.env-outputs.outputs.prelease == 'true' }}
+
+  # ***
+
+  identify-downstream-repos:
+    name: "Find Cascade repos"
+
+    runs-on: ubuntu-latest
+
+    needs: [env-outputs]
+
+    steps:
+      # CXREF: https://github.com/actions/checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # If pre-release, use alternative branch if defined.
+          ref: ${{
+            needs.env-outputs.outputs.prelease == 'true'
+            && vars.PRERELEASE_BRANCH
+            || github.event.repository.default_branch }}
+
+      # CXREF: https://github.com/marketplace/actions/yq-portable-yaml-processor
+      - name: Probe Yaml config
+        id: probe_yaml
+        uses: mikefarah/yq@master
+        # Some notes:
+        # - 'cmd' runs in a container (from /github/workspace, per `pwd),
+        #   and has `yq` installed, but not same as `pip install yq`. So
+        #   different args/behavior, e.g., this `yq` defaults Yaml output,
+        #   whereas PyPI `yq` defaults Json.
+        #   - Therefore use relative path (not "{{ github.workspace }}/...").
+        # - The '--indent 0' simply makes one-line JSON output, easier for
+        #   debugging/tracing.
+        # - The config file is Yaml so it can be commented (and so we didn't
+        #   have to look for an hjson loader to use commented JSON instead).
+        # - github.repository is org/repo, e.g., 'doblabs/easy-as-pypi'.
+        with:
+          cmd: |
+            yq -o=json --indent "0" '."${{ github.repository }}"' \
+              ".github/doblabs-dependencies.yml"
+
+    outputs:
+      downstream_repos_raw: ${{ steps.probe_yaml.outputs.result }}
+      # mikefarah/yq prints "null" (JSON null object) if there is not a
+      # matching list named github.repository, which makes sense, but
+      # also if the matching list is empty (rather than printing, e.g.,
+      # "[]"). Though I suppose in Yaml, how would interpreter know if
+      # that "named-thing:" is a list or dictionary, or valueless atom?
+      # - fromJson('null') returns null object, which when stringified
+      #   is the empty string (which you might see in error messages).
+      downstream_repos_exist: ${{ steps.probe_yaml.outputs.result != 'null' }}
+
+  # ***
+
+  dispatch-downstream-repos:
+    name: Dispatch downstream repos
+
+    needs: [wrangle-ci-tags, identify-downstream-repos]
+
+    # Note that we honor CI tag regardless if workflow_dispatch or workflow_call.
+    # - Also note that the 4 CI tags valid if called via release-smoke-test.yml.
+    # - Via update-deps.yml, 2 cascade-* args are inputs; and 2 inhibit-* args
+    #   unset, where inhibit-cascade known false (b/c cascade-dispatch is true
+    #   if workflow_dispatch, or implied if repository_dispatch (otherwise
+    #   upstream repo would not have called us)), and inhibit-forever we still
+    #   want to check.
+    #   - We'll still check HEAD-only ci-inhibit-cascade because why not, user
+    #     might have set it themselves.
+    if: ${{ needs.identify-downstream-repos.outputs.downstream_repos_exist == 'true'
+        && needs.wrangle-ci-tags.outputs.old-inhibit-cascade == 'false'
+        && needs.wrangle-ci-tags.outputs.old-inhibit-forever == 'false'
+      }}
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        repo: "${{
+          fromJSON(needs.identify-downstream-repos.outputs.downstream_repos_raw)
+        }}"
+
+    steps:
+      # CXREF: https://github.com/marketplace/actions/repository-dispatch
+      - name: Dispatch to "${{ matrix.repo }}"
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          # Personal access token created for *my user* with public_repo permissions.
+          token: ${{ secrets.PAT__PUBLIC_REPO }}
+          repository: ${{ matrix.repo }}
+          event-type: sprout-updates
+          # These vals default '', so fallback CI tag value if not an input.
+          client-payload: '
+            {
+              "cascade-updatedeps": "${{
+                inputs.cascade-updatedeps
+                || needs.wrangle-ci-tags.outputs.old-cascade-updatedeps
+              }}",
+              "cascade-versioning": "${{
+                inputs.cascade-versioning
+                || needs.wrangle-ci-tags.outputs.old-cascade-versioning
+              }}"
+            }'
+
+  # ***
+
+  celebrate-cascade-complete:
+    name: Celebrate Completed Cascade
+
+    needs: identify-downstream-repos
+
+    if: ${{ needs.identify-downstream-repos.outputs.downstream_repos_exist == 'false' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Congrats!
+        run: echo "Contrats!"
+
+  # ***
+
+  wrangle-ci-tags-cleanup:
+    name: Remove (temporary) CI tags
+    needs: [env-outputs, dispatch-downstream-repos]
+    uses: ./.github/workflows/ci-tags-wrangle.yml
+    with:
+      prerelease: ${{ needs.env-outputs.outputs.prelease == 'true' }}
+      delete-inhibit-cascade: true
+      delete-inhibit-forever: false
+      delete-cascade-updatedeps: true
+      delete-cascade-versioning: true
+      delete-inhibit-alpha: false
+      delete-inhibit-patch: false

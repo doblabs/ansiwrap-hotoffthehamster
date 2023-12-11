@@ -1,0 +1,105 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# CXREF: https://github.com/github/codeql-action
+# https://github.com/github/codeql-action/blob/main/.github/workflows/codeql.yml
+
+# SAVVY: Note this is generally the workflow that takes the longest
+# (it takes ~3m for the easy-as-pypi reference project).
+# - You might want to disable the pull_request check if you don't find
+#   much value in this scan and it's blocking your PR flow. (And then
+#   it'll just run on schedule, so you'll still benefit, eventually.)
+
+---
+
+name: "CodeQL Code Scanning"
+
+on:
+
+  # ISOFF/2023-11-04: This is the longest-running workflow, and doesn't
+  # offer much value, at least not to small, slow-moving projects. Cron
+  # weekly is good enough!
+  #
+  #   push:
+  #     branches: [release]
+  #
+  #   pull_request:
+  #     # The branches below must be a subset of the branches above
+  #     # - (lb): I assume that means 'pull_request' branches must
+  #     #         be a subset of 'push' branches.
+  #     branches: [release]
+
+  schedule:
+    # 6p every Monday.
+    - cron: '0 18 * * 1'
+
+# ***
+
+# Cancels all previous workflow runs for pull requests that have not completed.
+concurrency:
+  # The concurrency group contains the workflow name and the branch name for
+  # pull requests or the commit hash for any other events.
+  group: >
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' && github.head_ref || github.sha
+    }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read  # to fetch code (actions/checkout)
+
+jobs:
+  CodeQL-Build:
+    # CodeQL runs on ubuntu-latest, windows-latest, and macos-latest
+    runs-on: ubuntu-latest
+
+    permissions:
+      # required for all workflows
+      #  (github/codeql-action/autobuild)
+      security-events: write
+
+      # only required for workflows in private repositories
+      #  actions: read
+      #  # to fetch code (actions/checkout)
+      #  contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Initializes the CodeQL tools for scanning.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        # Override language selection by uncommenting this and choosing your languages
+        # with:
+        #   languages: go, javascript, csharp, python, cpp, java, ruby
+        #
+        # CXREF:
+        # https://docs.github.com/en/github/finding-security-vulnerabilities-and-errors-in-your-code/configuring-code-scanning#overriding-automatic-language-detection
+        with:
+          languages: python
+
+      # Autobuild attempts to build any compiled languages (C/C++, C#, Go, or
+      # Java). If this step fails, then you should remove it and run the build
+      # manually (see below).
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      # ℹ️ Command-line programs to run using the OS shell.
+      # 📚 See
+      # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
+      # Aka 📚 https://git.io/JvXDl
+
+      # ✏️ If the Autobuild fails above, remove it and uncomment the following
+      #    three lines and modify them (or add more) to build your code if your
+      #    project uses a compiled language
+
+      # - run: |
+      #   make bootstrap
+      #   make release
+
+      # CXREF: https://github.com/github/codeql-action
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2

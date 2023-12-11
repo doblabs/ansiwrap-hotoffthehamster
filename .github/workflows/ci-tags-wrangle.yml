@@ -1,0 +1,246 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+name: CI tag specialist
+
+on:
+  workflow_call:
+    # SAVVY: Callers call us to set values, or to fetch values, or both.
+    # - So if inputs left unsaid, means caller just wants current state.
+
+    inputs:
+      # Determines which branch to use, default or pre-release.
+      # - 'HEAD'- and 'project'-scoped tags are branch-specific.
+      prerelease:
+        type: boolean
+        required: true
+
+      # ***
+
+      # If tagged on HEAD, don't do current cascade.
+      inhibit-cascade:
+        type: string
+        required: false
+      delete-inhibit-cascade:
+        type: boolean
+        default: false
+
+      # If tagged on any commit in current branch, don't do cascade.
+      inhibit-forever:
+        type: string
+        required: false
+      delete-inhibit-forever:
+        type: boolean
+        default: false
+
+      # *** Cascade-time tags
+      #
+      # These tags are set per-project when they start (update-deps.yml), and
+      # cleared when they pass along the cascading stick (by release-smoke-test.yml,
+      # after calling spread-updates.yml).
+
+      # If tagged on HEAD and not "true", skip bin/update-poetry this cascade.
+      cascade-updatedeps:
+        type: string
+        required: false
+      delete-cascade-updatedeps:
+        type: boolean
+        default: false
+
+      # If tagged on HEAD, determines versioning increment this cascade.
+      # - Use "skip" to not version, and also to not release any projects.
+      cascade-versioning:
+        # Opts: 'alpha', 'patch', or 'skip';
+        #       or 'false' to remove the tag,
+        #       or '' to merely read the tag.
+        type: string
+        required: false
+      delete-cascade-versioning:
+        type: boolean
+        default: false
+
+      # *** User-managed tags
+
+      inhibit-alpha:
+        type: string
+        required: false
+      delete-inhibit-alpha:
+        type: boolean
+        default: false
+
+      inhibit-patch:
+        type: string
+        required: false
+      delete-inhibit-patch:
+        type: boolean
+        default: false
+
+    # Maps workflow outputs to job outputs.
+    # - SAVVY: Returns old/current values, before applying new values.
+    #   - If caller is not setting new values, returns current values.
+    #     - Just FYI, in case the "old-" prefix *confuses you*.
+    outputs:
+      old-inhibit-cascade:
+        description: "The previous/maybe current ci-inhibit-cascade value"
+        value: ${{ jobs.wrangle-ci-tags.outputs.old-inhibit-cascade }}
+      old-inhibit-forever:
+        description: "The previous/maybe current ci-inhibit-forever value"
+        value: ${{ jobs.wrangle-ci-tags.outputs.old-inhibit-forever }}
+      old-cascade-updatedeps:
+        description: "The previous/maybe current ci-cascade-updatedeps value"
+        value: ${{ jobs.wrangle-ci-tags.outputs.old-cascade-updatedeps }}
+      old-cascade-versioning:
+        description: "The previous/maybe current ci-cascade-versioning value"
+        value: ${{ jobs.wrangle-ci-tags.outputs.old-cascade-versioning }}
+      # The alpha and patch inhibitors are prerelease-related,
+      # so the raw values are not interesting to callers:
+      #   old-inhibit-alpha:
+      #     description: "The previous/maybe current ci-inhibit-alpha value"
+      #     value: ${{ jobs.wrangle-ci-tags.outputs.old-inhibit-alpha }}
+      #   old-inhibit-patch:
+      #     description: "The previous/maybe current ci-inhibit-patch value"
+      #     value: ${{ jobs.wrangle-ci-tags.outputs.old-inhibit-patch }}
+      # - But the calculated value for the current branch is interesting:
+      old-inhibit-release-pypi:
+        description: "Either old-inhibit-alpha or old-inhibit-patch per prerelease"
+        value: ${{ jobs.wrangle-ci-tags.outputs.old-inhibit-release-pypi }}
+
+# ***
+
+jobs:
+
+  wrangle-ci-tags:
+    name: Wrangle CI tags
+
+    runs-on: ubuntu-latest
+
+    # Maps job outputs to step outputs.
+    outputs:
+      old-inhibit-cascade: "${{
+        steps.wrangle-ci-tags.outputs.old_inhibit_cascade
+      }}"
+      old-inhibit-forever: "${{
+        steps.wrangle-ci-tags.outputs.old_inhibit_forever
+      }}"
+      old-cascade-updatedeps: "${{
+        steps.wrangle-ci-tags.outputs.old_cascade_updatedeps
+      }}"
+      old-cascade-versioning: "${{
+        steps.wrangle-ci-tags.outputs.old_cascade_versioning
+      }}"
+      old-inhibit-alpha: "${{
+        steps.wrangle-ci-tags.outputs.old_inhibit_alpha
+      }}"
+      old-inhibit-patch: "${{
+        steps.wrangle-ci-tags.outputs.old_inhibit_patch
+      }}"
+      old-inhibit-release-pypi: "${{
+        steps.compute-ci-tags.outputs.old_inhibit_release_pypi
+      }}"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          # If pre-release, use alternative branch if defined.
+          ref: ${{
+            inputs.prerelease
+            && vars.PRERELEASE_BRANCH
+            || github.event.repository.default_branch }}
+          # Use `fetch-depth: 0` to fetch all tags.
+          # - Note that `fetch-tags: 'true'` only fetches branch tags.
+          # - I didn't see this in GHA docs, just something I learned.
+          fetch-depth: 0
+
+      # ***
+
+      # NODRY: See similar steps: ci-tags-wrangle.yml, update-merged.yml
+      - name: Prepare committer
+        run: |
+          assert_git_email_known_ci () {
+            test -n "${UPDEPS_USER_EMAIL}" \
+              && return 0 || true
+
+            >&2 echo "ERROR: Please set UPDEPS_USER_EMAIL " \
+              "organization or project variable"
+
+            exit 1
+          }
+          assert_git_email_known_ci
+
+          git config user.email "${UPDEPS_USER_EMAIL}"
+          git config user.name \
+            "${UPDEPS_USER_NAME_CI_TAGS:-${UPDEPS_USER_NAME:-release-bot}}"
+        env:
+          UPDEPS_USER_EMAIL: ${{ vars.UPDEPS_USER_EMAIL }}
+          UPDEPS_USER_NAME: ${{ vars.UPDEPS_USER_NAME }}
+          UPDEPS_USER_NAME_CI_TAGS: ${{ vars.UPDEPS_USER_NAME_CI_TAGS }}
+
+      # ***
+
+      - name: Wrangle CI tags
+        id: wrangle-ci-tags
+        run: |
+          ./.github/bin/wrangle-tags
+        env:
+          EAPP_INHIBIT_CASCADE: ${{ inputs.inhibit-cascade }}
+          EAPP_DELETE_INHIBIT_CASCADE: ${{ inputs.delete-inhibit-cascade }}
+          EAPP_INHIBIT_FOREVER: ${{ inputs.inhibit-forever }}
+          EAPP_DELETE_INHIBIT_FOREVER: ${{ inputs.delete-inhibit-forever }}
+          EAPP_CASCADE_UPDATEDEPS: ${{ inputs.cascade-updatedeps }}
+          EAPP_DELETE_CASCADE_UPDATEDEPS: ${{ inputs.delete-cascade-updatedeps }}
+          EAPP_CASCADE_VERSIONING: ${{ inputs.cascade-versioning }}
+          EAPP_DELETE_CASCADE_VERSIONING: ${{ inputs.delete-cascade-versioning }}
+          EAPP_INHIBIT_ALPHA: ${{ inputs.inhibit-alpha }}
+          EAPP_DELETE_INHIBIT_ALPHA: ${{ inputs.delete-inhibit-alpha }}
+          EAPP_INHIBIT_PATCH: ${{ inputs.inhibit-patch }}
+          EAPP_DELETE_INHIBIT_PATCH: ${{ inputs.delete-inhibit-patch }}
+
+      # ***
+
+      - name: Compute CI tags
+        id: compute-ci-tags
+        run: |
+          out_name="old_inhibit_release_pypi"
+          old_tag_value="${{ false
+            || (inputs.prerelease
+                && steps.wrangle-ci-tags.outputs.old-inhibit-alpha == 'true'
+                && 'true')
+            || (!inputs.prerelease
+                && steps.wrangle-ci-tags.outputs.old-inhibit-patch == 'true'
+                && 'true')
+            || 'false' }}"
+          echo "${out_name}=${old_tag_value}" >> "${GITHUB_OUTPUT}"
+
+          echo "GITHUB_OUTPUT:"
+          cat "${GITHUB_OUTPUT}" | sed 's/^/  /'
+
+      # ***
+
+      - name: Trace vars
+        run: |
+          echo "old-inhibit-cascade: ${{
+            steps.wrangle-ci-tags.outputs.old_inhibit_cascade
+          }}"
+          echo "old-inhibit-forever: ${{
+            steps.wrangle-ci-tags.outputs.old_inhibit_forever
+          }}"
+          echo "old-cascade-updatedeps: ${{
+            steps.wrangle-ci-tags.outputs.old_cascade_updatedeps
+          }}"
+          echo "old-cascade-versioning: ${{
+            steps.wrangle-ci-tags.outputs.old_cascade_versioning
+          }}"
+          echo "old-inhibit-alpha: ${{
+            steps.wrangle-ci-tags.outputs.old_inhibit_alpha
+          }}"
+          echo "old-inhibit-patch: ${{
+            steps.wrangle-ci-tags.outputs.old_inhibit_patch
+          }}"
+          echo "old-inhibit-release-pypi: ${{
+            steps.compute-ci-tags.outputs.old_inhibit_release_pypi
+          }}"

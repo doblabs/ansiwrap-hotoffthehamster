@@ -1,0 +1,71 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# CXREF: https://github.com/readthedocs/actions/tree/v1/preview
+#   https://github.com/readthedocs/actions
+
+# USAGE: Enable "Preview Documentation from Pull Requests" in RTFD project
+#   https://docs.readthedocs.io/en/latest/pull-requests.html
+# RTD > Settings > Advanced Settings > ✓ Build pull requests for this project
+#   https://readthedocs.org/dashboard/easy-as-pypi/advanced/
+#
+# Note that you'll see 2 checks on the PR page, one for this workflow, and
+# one for the RTD build hook — this workflow merely adds the PR link.
+#
+# Also note that the link appears before docs are finished building,
+# so the link might 404 you for a moment.
+
+---
+
+name: Attach Readthedocs PR link
+
+on:
+  # DUNNO: The RTD workflow example:
+  #   https://github.com/readthedocs/actions/tree/v1/preview
+  # shows just a 'pull_request_target' hook and not 'pull_request'.
+  # - But I don't see 'pull_request_target' run.
+  # FIXME: Try PR some separate user, see if this runs then.
+  #
+  # Note that 'pull_request_target' allows write access (so PR
+  # can be commented) and allows access to secrets. So don't
+  # do anything with these powers below that could be dangerous
+  # (like checkout the users PR code and try running it, because
+  # they could've edited Makefile or pyproject.toml or the code
+  # to do malicious things).
+  pull_request_target:
+    types:
+      - opened
+    # Execute this action only on PRs that touch
+    # documentation files.
+    paths:
+      - "**/*.rst"
+      - "docs/**"
+
+  # As mentioned above, 'pull_request' runs on local PRs, and
+  # not 'pull_request_target' (though per docs, a local PR
+  # run via 'pull_request' has implicit write and secrets
+  # access like 'pull_request_target').
+  # https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+  pull_request:
+    types:
+      - opened
+    # Execute this action only on PRs that touch
+    # documentation files.
+    paths:
+      - "**/*.rst"
+      - "docs/**"
+
+# ***
+
+permissions:
+  pull-requests: write
+
+jobs:
+  pull-request-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: readthedocs/actions/preview@v1
+        with:
+          project-slug: "easy-as-pypi"

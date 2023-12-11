@@ -1,0 +1,328 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+---
+
+# USYNC: This name is used by `gh workflow run`.
+# - Search for: 'Release Cascade — Update'
+name: Release Cascade — Update
+
+run-name: 👣 — Cascade — 2.) Update deps ${{
+  ! inputs.from-upstream && '(via User)' || '(from up)' }}
+
+# This workflow is triggered by 1 of 3 events:
+# - Via sprout-updates.yml, from user workflow_dispatch (GH website button)
+# - Via sprout-updates.yml, from upstream project repository_dispatch,
+#                           from its spread-updates.yml
+# - Via update-deps (this), from user workflow_dispatch (GH website button)
+on:
+  # SAVVY: Ideally, a user would use sprout-updates.yml to start a release
+  # cascade, but that's not our world:
+  # - We must define workflow_dispatch inputs here, which the user will see
+  #   on the GitHub Actions page.
+  # - This because GH uses the same workflow_dispatch inputs for both the
+  #   GitHub Actions page, as well as for `gh` command-line options, e.g.,
+  #     `gh workflow run -f "foo=bar"`.
+  # - This isn't, like, the end of our world, but (lb) I think it'd be more
+  #   clear if the GH website buttons for this workflow was simply the ever-
+  #   present "Run workflow" button.
+  #   - Then the user (I'd assume) would understand that running this
+  #     workflow *only runs this workflow*, nothing more; i.e., no cascade.
+  # - However, sprout-updates must call this workflow via `gh workflow run`,
+  #   to avoid exceeding the nested reusable workflow limit (see comments in
+  #   sprout-updates.yml).
+  # - As such, the user can start the cascade via this workflow via the GH
+  #   Actions buttons for these inputs, but the user has to opt-in.
+  #   - So the default behavior if the user clicks the "Run workflow" button
+  #     but does not change any input defaults is that this workflow will
+  #     update the current project's deps, but it won't propagate the cascade.
+  workflow_dispatch:
+    inputs:
+      which-deps:
+        description: 'Update deps'
+        type: choice
+        options:
+          - 'ours'
+          - 'full'
+          # Ideally, there'd be no 'skip' option from the GitHub Actions page,
+          # b/c why bother starting this workflow if you're just going to skip
+          # it? But we need the option to support `gh workflow run` from
+          # sprout-updates.yml.
+          # - We can at least default 'ours'.
+          - 'skip'
+        default: 'ours'
+
+      # Note if bump-part is "alpha" *and* cascade-dispatch is
+      # true, then include-prerelease-lock is implicitly true.
+      include-prerelease-lock:
+        description: 'Include pre-release lock'
+        type: boolean
+        default: false
+
+      bump-part:
+        description: 'Increment version'
+        type: choice
+        options:
+          - 'alpha'
+          - 'patch'
+          - 'skip'
+        default: 'skip'
+
+      # ***
+
+      cascade-dispatch:
+        description: 'Start the cascade'
+        type: boolean
+        default: false
+
+      # ISOFF: User should assume which-deps will be used for the cascade.
+      # - If user wants to 'skip' updatedeps, send them to sprout-updates.yml.
+      #
+      # cascade-updatedeps:
+      #    description: 'Cascade poetry-update'
+      #    type: choice
+      #    options:
+      #      - 'full'
+      #      - 'ours'
+      #      - 'skip'
+      #    default: 'skip'
+
+      # ABOVE: We list cascade-versioning above (as bump-part), so user
+      # (hopefully) understands they can bump version without starting
+      # cascade — and also they'll hopefully understand the the same
+      # bump-version value is used if they *do* decide to start the
+      # release cascade.
+
+      # ***
+
+      # Just for the UX of it.
+      from-upstream:
+        description: 'Internal flag (from-upstream)'
+        type: boolean
+        default: false
+
+# ***
+
+env:
+  # TRACK: https://github.com/actions/python-versions/releases
+  # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
+  PYTHON_VERSION: 3.11
+
+  # *** Munge possible input sources
+  # PLESS/2023-12-01: These env's are pointless now that there's only one
+  # triggering event, workflow_dispatch, which specifies default values
+  # for both of these.
+  # - These env's were originally plumbed for the 'repository_dispatch'
+  #   event, which has since been moved to sprout-updates.yml. Because back
+  #   then, we wanted to fallback on a default value if the caller didn't
+  #   specify the input. But now there's always gonna be a default value.
+  # Nonetheless, let's keep this as-is, because it's a nice example of how
+  # you need to convert env.values to job.outputs.values if you want to
+  # use env.values in an `if` or a `with` (see env-outputs usage).
+  CASCADE_UPDATEDEPS: ${{
+    inputs.which-deps
+    || 'skip' }}
+  CASCADE_VERSIONING: ${{
+    inputs.bump-part
+    || 'skip' }}
+  PRERELEASE: ${{
+    inputs.bump-part == 'alpha'
+    || inputs.include-prerelease-lock
+    }}
+
+jobs:
+  # `env.` doesn't work from within `with:`, so kluge it.
+  env-outputs:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "CASCADE_UPDATEDEPS: ${CASCADE_UPDATEDEPS}"
+          echo "CASCADE_VERSIONING: ${CASCADE_VERSIONING}"
+          echo "PRERELEASE: ${PRERELEASE}"
+    outputs:
+      cascade-updatedeps: ${{ env.CASCADE_UPDATEDEPS }}
+      cascade-versioning: ${{ env.CASCADE_VERSIONING }}
+      prelease: ${{ env.PRERELEASE }}
+
+  # Here we check for branch tags (ci-inhibit-forever) and HEAD tags the
+  # user might've set deliberately on this project. Because this is the
+  # cascade entry point for a project (via repository_dispatch), HEAD
+  # tags won't exist (CI didn't do it) unless user set them deliberately.
+  wrangle-ci-tags:
+    name: Wrangle (read) CI tags
+    uses: ./.github/workflows/ci-tags-wrangle.yml
+    needs: [env-outputs]
+    with:
+      prerelease: ${{ needs.env-outputs.outputs.prelease == 'true' }}
+
+  poetry-update:
+    name: Update lock deps
+
+    needs: [env-outputs, wrangle-ci-tags]
+
+    # Check for CI Git tags:
+    # - Either ci-inhibit-cascade or ci-inhibit-forever will kill the
+    #   cascade, and no further downstream repos will be dispatched.
+    # - If ci-cascade-updatedeps is set and 'skip' — of course! — skip
+    #   this poetry-update job, but keep the cascade going.
+    # Also check the cascade-updatedeps input, either from upstream
+    # repository_dispatch, or from user-initiated workflow_call (via
+    # sprout-updates.yml, which exposes the workflow_dispatch inputs).
+    if: needs.env-outputs.outputs.cascade-updatedeps != 'skip'
+      || needs.wrangle-ci-tags.outputs.old-cascade-updatedeps != 'skip'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          # If pre-release, use alternative branch if defined.
+          ref: ${{
+            needs.env-outputs.outputs.prelease == 'true'
+            && vars.PRERELEASE_BRANCH
+            || github.event.repository.default_branch }}
+          # Use the user token, not ${{ github.token }}, so that
+          # git-push triggers workflow events. (Though TBH I don't
+          # remember if it's the token setting here or the one on
+          # bin/update-poetry, below that does this.)
+          #  token: ${{ github.token }}
+          token: ${{ secrets.USER_PAT }}
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        id: setup-python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'poetry'
+
+      - name: Run bin/update-poetry
+        id: run-update-poetry
+        run: |
+          env | grep -e "^UPDEPS_" | sort
+
+          new_pr_num="$(
+            ./.github/bin/update-poetry
+          )"
+
+          # In case bin/update-poetry spews something weird, capture it.
+          echo
+          echo "new_pr_num=${new_pr_num}"
+
+          echo "new_pr_num=${new_pr_num}" >> $GITHUB_OUTPUT
+        env:
+          # USER_TOKEN used with gh-label (manage 'poetry.lock' label),
+          # and GBOT_TOKEN used to approve PR using different user:
+          # - USER_TOKEN used on gh-pr-create and gh-pr-merge, and
+          #   GBOT_TOKEN used on gh-pr-review.
+          USER_TOKEN: ${{ secrets.USER_PAT }}
+          GBOT_TOKEN: ${{ github.token }}
+          # Organization variables (user email/name used on git-commit).
+          UPDEPS_USER_EMAIL: ${{ vars.UPDEPS_USER_EMAIL }}
+          UPDEPS_USER_NAME: ${{ vars.UPDEPS_USER_NAME }}
+          UPDEPS_USER_NAME_UPDEPS: ${{ vars.UPDEPS_USER_NAME_UPDEPS }}
+          # Project identifier (used to deduce remote name for git-push).
+          UPDEPS_REPO_ORG_PROJ: ${{ github.repository }}
+          # Inhibit cascade if "workflow_dispatch" and user didn't opt-in to
+          # start the cascade (which happens after PR approved, after version
+          # tag created, after checks pass, and after package is released and
+          # smoke-tested).
+          UPDEPS_CASCADE_INHIBIT: ${{ inputs.cascade-dispatch && 'false' || 'true' }}
+          # Whether to update all deps ("full"), or just "ours".
+          # - This value is passed to the next project in the cascade, too.
+          UPDEPS_CASCADE_UPDATEDEPS: ${{ env.CASCADE_UPDATEDEPS }}
+          # Whether to version, and how, after PR is approved.
+          # - Also passed along in the cascade.
+          UPDEPS_CASCADE_VERSIONING: ${{ env.CASCADE_VERSIONING }}
+          UPDEPS_INCLUDE_PRERELEASE: ${{ inputs.include-prerelease-lock }}
+          # Tweak the commit messages slightly to leave a source crumb.
+          UPDEPS_COMMIT_MESSAGE_NORMAL: |
+            Build: Deps: Update poetry.lock [update-deps.yml]
+          UPDEPS_COMMIT_MESSAGE_PRERELEASE: |
+            Build: Deps: Update pre-release assets [update-deps.yml]
+          # DEVXX: Use this to mock poetry-update, for faster dev/test.
+          UPDEPS_FAKE_UPDATE: false
+
+    outputs:
+      new_pr_num: ${{ steps.run-update-poetry.outputs.new_pr_num }}
+
+  # ***
+
+  trace:
+    name: Trace vars
+    needs: [env-outputs, wrangle-ci-tags, poetry-update]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      # yamllint disable rule:line-length
+      - run: |
+          echo "wrangle-ci-tags.old-inhibit-cascade: ${{ needs.wrangle-ci-tags.outputs.old-inhibit-cascade }}"
+          echo "wrangle-ci-tags.old-inhibit-forever: ${{ needs.wrangle-ci-tags.outputs.old-inhibit-forever }}"
+          #
+          echo "needs.poetry-update.result: ${{ needs.poetry-update.result }}"
+          echo "needs.poetry-update.outputs.new_pr_num: ${{ needs.poetry-update.outputs.new_pr_num }}"
+          #
+          echo "inputs.which-deps: ${{ inputs.which-deps }}"
+          echo "inputs.include-prerelease-lock: ${{ inputs.include-prerelease-lock }}"
+          echo "inputs.bump-part: ${{ inputs.bump-part }}"
+          echo "inputs.cascade-dispatch: ${{ inputs.cascade-dispatch }}"
+          echo "inputs.from-upstream: ${{ inputs.from-upstream }}"
+          # When caller specifies false, the next three lines OUTPUT:
+          #   'false', 'false', 'foo'
+          # i.e., it *is* a true boolean.
+          # - Note that `false != ''` is false, because '' evaluates false.
+          # - When caller specifies true, OUTPUTs are: 'true', 'true', 'true'
+          #   (and `true != ''` is true, because '' is false).
+          #
+          #   echo "inputs.cascade-dispatch: ${{ inputs.cascade-dispatch }}"
+          #   echo "inputs.cascade-dispatch != '': ${{ inputs.cascade-dispatch != '' }}"
+          #   echo "inputs.cascade-dispatch || foo: ${{ inputs.cascade-dispatch || 'foo' }}"
+          #
+          echo "wrangle-ci-tags.old-cascade-updatedeps: ${{ needs.wrangle-ci-tags.outputs.old-cascade-updatedeps }}"
+          echo "needs.env-outputs.cascade-updatedeps: ${{ needs.env-outputs.outputs.cascade-updatedeps }}"
+          echo "needs.env-outputs.cascade-versioning: ${{ needs.env-outputs.outputs.cascade-versioning }}"
+
+          # Trace the next job's complicated `if`.
+          # - REFER: Cannot escape GHA brackets, so output as text, ha.
+          #     https://github.com/orgs/community/discussions/26621
+          echo "if: ${{ '\${{' }} !cancelled()
+              && (${{ needs.env-outputs.outputs.cascade-versioning }} != 'skip'
+                  || (${{ inputs.cascade-dispatch }}
+                      && ${{ needs.wrangle-ci-tags.outputs.old-inhibit-cascade }} == 'false'
+                      && ${{ needs.wrangle-ci-tags.outputs.old-inhibit-forever }} == 'false')
+              && (${{ needs.poetry-update.result }} == 'skipped'
+                  || (${{ needs.poetry-update.result }} == 'success'
+                      && ${{ needs.poetry-update.outputs.new_pr_num }} == '')) }}"
+      # yamllint enable rule:line-length
+
+  # If no PR, move on to versioning here. And if versioning being skipped,
+  # versioning workflow will dispatch immediately to downstream repo(s).
+  # Otherwise, if PR created, update-merged.yml workflow will continue
+  # cascade after PR is merged, and new package version is released.
+  update-merged:
+    name: "Cascade maybe"
+
+    uses: ./.github/workflows/update-merged.yml
+    secrets: inherit
+
+    needs: [env-outputs, wrangle-ci-tags, poetry-update]
+
+    if: ${{ !cancelled()
+        && (needs.env-outputs.outputs.cascade-versioning != 'skip'
+            || (inputs.cascade-dispatch
+                && needs.wrangle-ci-tags.outputs.old-inhibit-cascade == 'false'
+                && needs.wrangle-ci-tags.outputs.old-inhibit-forever == 'false'))
+        && (needs.poetry-update.result == 'skipped'
+            || (needs.poetry-update.result == 'success'
+                && needs.poetry-update.outputs.new_pr_num == '')) }}
+
+    with:
+      cascade-dispatch: ${{ inputs.cascade-dispatch }}
+      cascade-updatedeps: ${{ needs.env-outputs.outputs.cascade-updatedeps }}
+      cascade-versioning: ${{ needs.env-outputs.outputs.cascade-versioning }}
+      from-upstream: ${{ inputs.from-upstream }}
