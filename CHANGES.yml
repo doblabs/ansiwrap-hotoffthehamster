@@ -1,3 +1,5 @@
+---
+
 -
   version: 0.8.4
   date: January 23, 2019
@@ -18,15 +20,15 @@
     Tweaked ``setup.py``. Packaging now makes ``textwrap3`` an install, not
     setup, requirement. Thanks to `MinchinWeb <https://github.com/MinchinWeb>`_
     for observing & fixing.
-    
-    
+
+
 -
   version: 0.8.1
   date: June 10, 2017
   notes: >
     Improved README and tests.
-  
-    
+
+
 -
   version: 0.8.0
   date: June 7, 2017
@@ -35,7 +37,7 @@
     cropped up in recent releases. Both local and CI tests installed and
     ran code fine, but real-world installs had more trouble. Testing
     config hardened to make recurrence of that discrepancy less likely.
-    
+
     Excised local copy of ``textwrap`` to ``textwrap3``, which is now
     a stand-alone module on PyPI.
 
@@ -44,7 +46,7 @@
   date: June 6, 2017
   notes: >
     Minor code clean-up.
-    
+
     Test coverage upped to 99%. Point of pride:
     Has better test coverage for embedded version
     of ``textwrap`` than the Python standard
@@ -57,7 +59,7 @@
   notes: >
     ``shorten()`` API now works across all Python versions,
     including with ANSI codes embedded.
-    
+
     Revised coverage metric to 97 after major code infusion.
 
 -
@@ -69,7 +71,7 @@
     added. Both were slightly tweaked to support Python 2.6
     forward. But now there's a quality, tested version of
     the Python 3.6 ``textwrap`` back-ported to 2.x.
-    
+
     ``textwrap`` has been made savvy to Unicode emdashes,
     which it surprisingly was not before.
 
@@ -80,7 +82,7 @@
     Upgraded monkey-patching strategy to make a copy of the ``textwrap``
     module using ``imp``. We are only patching a copy, so safer, esp.
     with concurrency.
-    
+
     ``shorten`` API added for 3.4 and following.
 
 -
