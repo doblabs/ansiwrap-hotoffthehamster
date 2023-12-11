@@ -1,0 +1,147 @@
+{% extends ".pyproject.tmpl" %}
+
+# vim:tw=0:ts=4:sw=4:et:norl:ft=toml
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+
+# Copyright (c) © 2020-2023 Landon Bouma. All Rights Reserved.
+
+{% block project_meta -%}
+
+[tool.poetry]
+# REFER: https://peps.python.org/pep-0621/
+#   https://packaging.python.org/en/latest/specifications/declaring-project-metadata/
+
+name = "easy-as-pypi"
+version = "0.0.0"
+description = "Bootstrapping your next Python CLI made easy as PyPI"
+
+authors = ["Landon Bouma <doblabs@tallybark.com>"]
+maintainers = ["Tally Bark LLC <doblabs@tallybark.com>"]
+
+license = "MIT"
+readme = "README.rst"
+
+# REFER: https://pypi.org/classifiers/
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+# Keywords for PyPI to display, and to use for search results.
+keywords = [
+    "python",
+    "boilerplate",
+    "pyoilerplate",
+    "scaffolding",
+    "framework",
+    "CLI",
+    "TUI",
+    "skeleton",
+    "cookiecutter",
+]
+
+# poetry build excludes __pycache__ dirs
+# and whatever Git ignores (.gitignore).
+# Here we add files to the source dist.
+#
+# REFER: https://python-poetry.org/docs/pyproject/#include-and-exclude
+
+include = [
+    # Included by default:
+    #  { path = "LICENSE", format = "sdist" },
+    #  { path = "README.rst", format = "sdist" },
+    #  { path = "pyproject.toml", format = "sdist" },
+    { path = "*.rst", format = "sdist" },
+    { path = "tests/", format = "sdist" },
+    # Omitting: Makefile, dotfiles, docs/, etc.
+    # Learning: How you can inflate the wheel:
+    #  { path = "for_wheel.txt", format = ["sdist", "wheel"] }
+]
+
+# Note that Poetry looks for packages under src/ by default, but
+# we could specify the path explicitly, e.g.,
+#
+#   packages = [{include = "the_package_name", from = "src"}]
+
+# ***
+
+# YOU: Disable this if your project derived from easy-as-pypi
+#      does not have a runnable script.
+#      - Otherwise set this to the package entry point.
+
+[tool.poetry.scripts]
+easy-as-pypi = "easy_as_pypi:cli"
+
+# ***
+
+[tool.easy_as_pypi]
+author = "Landon Bouma <https://tallybark.com/>"
+copy_years_owner = "2020-2023 Landon Bouma"
+coc_contact_email = "tallybark+doblabs -at- gmail.com"
+
+# ***
+
+[tool.poetry.urls]
+
+# HOWTO: Add project URLs to this table. If you use special keywords in
+# the name or certain domains in the URL, PyPI will treat them specially
+# or at least iconify them.
+# - These names are special:
+#     "download"
+#     "home", "homepage", "home page"
+#     "changelog", "change log", "changes", "release notes",
+#         "news", "what's new", "history"
+#     "docs*", "documentation*"
+#     "bug*", "issue*", "tracker*", "report*"
+#     "funding*", "donate*", "donation*", "sponsor*"
+# - REFER: See the source for specifics:
+#     https://github.com/pypi/warehouse/blob/main/warehouse/templates/packaging/detail.html
+# - THANX: Here's also a nice graphic:
+#     https://daniel.feldroy.com/posts/2023-08-pypi-project-urls-cheatsheet
+
+# WIRED: The Sphinx config (docs/conf.py) and .github/bin/update-poetry
+#        require that 'homepage' or 'repository' is set.
+
+homepage = "https://github.com/doblabs/easy-as-pypi#🥧"
+
+# Include 'repository' unless same as homepage.
+#  repository = "https://github.com/doblabs/easy-as-pypi"
+
+history = "https://github.com/doblabs/easy-as-pypi/blob/release/HISTORY.rst"
+
+documentation = "https://easy-as-pypi.readthedocs.io/en/latest"
+
+issues = "https://github.com/doblabs/easy-as-pypi/issues"
+
+download = "https://pypi.org/project/easy-as-pypi/#files"
+
+{% endblock -%}
+
+{# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #}
+
+{% block isort_known_third_party -%}
+    "click",
+{%- endblock %}
+
+{# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #}
+
+{% block deps_test_fakers_and_factories -%}
+
+# **** Fakers not needed.
+{% endblock -%}
+
+{# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ #}
+
+{% block project_dependencies -%}
+
+# - "Composable command line interface toolkit"
+#
+#   https://pypi.org/project/click
+#   https://github.com/pallets/click
+click = "^8.0.0"
+{% endblock %}
