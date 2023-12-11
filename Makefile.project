@@ -1,0 +1,13 @@
+# vim:tw=0:ts=2:sw=2:noet:ft=make
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/ansiwrap-hotoffthehamster
+# License: Apache
+
+# ***
+
+EAPP_MAKEFILE_FLAKE8_DISABLE ?= true
+
+EAPP_MAKEFILE_PYDOCSTYLE_DISABLE ?= true
+
+EAPP_MAKEFILE_DOCS_DISABLE ?= true
+
