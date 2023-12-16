@@ -1,29 +1,68 @@
+@@@@@@@@@@@@@@@@@@@@@@@@@
+ansiwrap-hotoffthehamster
+@@@@@@@@@@@@@@@@@@@@@@@@@
 
-| |travisci| |version| |versions| |impls| |wheel| |coverage|
+.. CXREF:
+   https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/adding-a-workflow-status-badge
 
-.. |travisci| image:: https://api.travis-ci.org/jonathaneunice/ansiwrap.svg
-    :target: http://travis-ci.org/jonathaneunice/ansiwrap
+.. image:: https://github.com/doblabs/ansiwrap-hotoffthehamster/actions/workflows/checks-unspecial.yml/badge.svg?branch=release
+  :target: https://github.com/doblabs/ansiwrap-hotoffthehamster/actions/workflows/checks-unspecial.yml/badge.svg?branch=release
+  :alt: Build Status
 
-.. |version| image:: http://img.shields.io/pypi/v/ansiwrap.svg?style=flat
-    :alt: PyPI Package latest release
-    :target: https://pypi.python.org/pypi/ansiwrap
+.. CXREF: https://app.codecov.io/github.com/doblabs/ansiwrap-hotoffthehamster/settings/badge
 
-.. |versions| image:: https://img.shields.io/pypi/pyversions/ansiwrap.svg
-    :alt: Supported versions
-    :target: https://pypi.python.org/pypi/ansiwrap
+.. image:: https://codecov.io/gh/doblabs/ansiwrap-hotoffthehamster/branch/release/graph/badge.svg?token=XXX
+  :target: https://app.codecov.io/gh/doblabs/ansiwrap-hotoffthehamster
+  :alt: Coverage Status
 
-.. |impls| image:: https://img.shields.io/pypi/implementation/ansiwrap.svg
-    :alt: Supported implementations
-    :target: https://pypi.python.org/pypi/ansiwrap
+.. image:: https://readthedocs.org/projects/ansiwrap-hotoffthehamster/badge/?version=latest
+  :target: https://ansiwrap-hotoffthehamster.readthedocs.io/en/latest/
+  :alt: Documentation Status
 
-.. |wheel| image:: https://img.shields.io/pypi/wheel/ansiwrap.svg
-    :alt: Wheel packaging support
-    :target: https://pypi.python.org/pypi/ansiwrap
+.. image:: https://img.shields.io/github/v/release/doblabs/ansiwrap-hotoffthehamster.svg?style=flat
+  :target: https://github.com/doblabs/ansiwrap-hotoffthehamster/releases
+  :alt: GitHub Release Status
 
-.. |coverage| image:: https://img.shields.io/badge/test_coverage-99%25-0000FF.svg
-    :alt: Test line coverage
-    :target: https://pypi.python.org/pypi/ansiwrap
+.. image:: https://img.shields.io/pypi/v/ansiwrap-hotoffthehamster.svg
+  :target: https://pypi.org/project/ansiwrap-hotoffthehamster/
+  :alt: PyPI Release Status
 
+.. image:: https://img.shields.io/pypi/pyversions/ansiwrap-hotoffthehamster.svg
+  :target: https://pypi.org/project/ansiwrap-hotoffthehamster/
+  :alt: PyPI Supported Python Versions
+
+.. image:: https://img.shields.io/github/license/doblabs/ansiwrap-hotoffthehamster.svg?style=flat
+  :target: https://github.com/doblabs/ansiwrap-hotoffthehamster/blob/release/LICENSE
+  :alt: License Status
+
+|
+
+.. ISOFF/2023-12-16: Upstream (forked-from) badges:
+..
+.. | |travisci| |version| |versions| |impls| |wheel| |coverage|
+..
+.. .. |travisci| image:: https://api.travis-ci.org/jonathaneunice/ansiwrap.svg
+..     :target: http://travis-ci.org/jonathaneunice/ansiwrap
+..
+.. .. |version| image:: http://img.shields.io/pypi/v/ansiwrap.svg?style=flat
+..     :alt: PyPI Package latest release
+..     :target: https://pypi.python.org/pypi/ansiwrap
+..
+.. .. |versions| image:: https://img.shields.io/pypi/pyversions/ansiwrap.svg
+..     :alt: Supported versions
+..     :target: https://pypi.python.org/pypi/ansiwrap
+..
+.. .. |impls| image:: https://img.shields.io/pypi/implementation/ansiwrap.svg
+..     :alt: Supported implementations
+..     :target: https://pypi.python.org/pypi/ansiwrap
+..
+.. .. |wheel| image:: https://img.shields.io/pypi/wheel/ansiwrap.svg
+..     :alt: Wheel packaging support
+..     :target: https://pypi.python.org/pypi/ansiwrap
+..
+.. .. |coverage| image:: https://img.shields.io/badge/test_coverage-99%25-0000FF.svg
+..     :alt: Test line coverage
+..     :target: https://pypi.python.org/pypi/ansiwrap
 
 ``ansiwrap`` wraps text, like the standard ``textwrap`` module.
 But it also correctly wraps text that contains ANSI control
@@ -61,5 +100,5 @@ It also exports several other functions:
 
 See also the enclosed ``demo.py``.
 
-.. image:: https://content.screencast.com/users/jonathaneunice/folders/Jing/media/8db64be2-01cc-4da4-b46a-789c53c63b44/00000569.png
+.. image:: https://github.com/doblabs/ansiwrap-hotoffthehamster/blob/release/docs/assets/00000569.png
    :align: center
