@@ -192,7 +192,11 @@ update_faithful_file () {
   if ! ${success}; then
     handle_failed_state "${canon_head}" "${canon_file_absolute}"
 
-    return 1
+    # No callers check return value; they'll happily continue,
+    # and should, so they can print one final `rm` command that
+    # user can copy-paste to resolve all the issues.
+    #
+    #  return 1
   fi
 }
 
@@ -683,8 +687,9 @@ update_local_from_canon () {
     # This is not a simple "meld \"${local_file}\" \"${canon_file_absolute}\" &"
     # because we need the scoped version of the canon file.
     printf "%s"                      "( cd \"$(dirname "${canon_file_absolute}")\" \\
-                                        && meld \"$(pwd)/${local_file}\" \\
-                                           <(git show ${short_head}:\"${canon_file_relative}\") ) &"
+                                        && meld \\
+                                            <(git show ${short_head}:\"${canon_file_relative}\") \\
+                                            \"$(pwd)/${local_file}\") &"
   }
 
   warn_usage_hint_add_meld_compare_cpyst () {
@@ -1079,7 +1084,7 @@ render_document_from_template () {
   # Localize template sources.
 
   local tmp_source_dir
-  tmp_source_dir="$(mktemp -d -t ${UPDEPS_VENV_PREFIX}XXXX)"
+  tmp_source_dir="$(mktemp -d -t ${UPDEPS_VENV_PREFIX}--render_document--XXXX)"
 
   local tmp_tmpl_absolute="${tmp_source_dir}/${canon_tmpl_relative}"
 
@@ -1282,7 +1287,7 @@ venv_activate_and_prepare () {
 # - BEGET: https://gist.github.com/csinchok/9714005
 venv_activate () {
   local throwaway_dir
-  throwaway_dir=$(mktemp -d -t ${UPDEPS_VENV_PREFIX}XXXX)
+  throwaway_dir=$(mktemp -d -t ${UPDEPS_VENV_PREFIX}--venv_activate--XXXX)
 
   cd "${throwaway_dir}"
 
@@ -1333,7 +1338,8 @@ venv_install_jinja2_cli () {
   local ignore_warning="WARNING: There was an error checking the latest version of pip."
 
   pip install -q jinja2-cli 2>&1 \
-    | grep -v "${ignore_warning}"
+    | grep -v "${ignore_warning}" \
+    || true
 
   # ALTLY:
   #   python -m pip install jinja2-cli

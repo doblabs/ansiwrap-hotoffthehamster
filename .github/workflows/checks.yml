@@ -48,23 +48,35 @@ jobs:
         uses: actions/checkout@v4
 
       # Use an intermediate Makefile to probe project Makefile.
-      # - As mentioned above, skipping:  EAPP_MAKEFILE_LINKCHECK_DISABLE
+      # - As mentioned above, skipping:  EAPP_MAKEFILE_LINKCHECK_DISABLE,
+      #   and a few other environs that exist insofar as being included
+      #   herein only to be excluded. But documented why.
       - name: Check if project disabled this task
         id: read-environs
         run: |
 
           for var_name in \
-            "EAPP_MAKEFILE_DOCS_DISABLE" \
+            "EAPP_MAKEFILE_TESTS_DISABLE" \
+            "EAPP_MAKEFILE_TESTS_WINDOWS_DISABLE" \
+            "EAPP_MAKEFILE_BLACK_DISABLE" \
             "EAPP_MAKEFILE_FLAKE8_DISABLE" \
-            "EAPP_MAKEFILE_LINKCHECK_DISABLE" \
+            "EAPP_MAKEFILE_ISORT_DISABLE" \
+            "EAPP_MAKEFILE_DOC8_PIP_DISABLE" \
+            "EAPP_MAKEFILE_DOC8_POETRY_DISABLE" \
+            "EAPP_MAKEFILE_DOCS_DISABLE" \
+            "EAPP_MAKEFILE_TWINE_CHECK_DISABLE" \
+            "EAPP_MAKEFILE_POETRY_CHECK_DISABLE" \
             "EAPP_MAKEFILE_PYDOCSTYLE_DISABLE" \
+            "EAPP_MAKEFILE_COVERAGE_DISABLE" \
+            "EAPP_MAKEFILE_YAMLLINT_DISABLE" \
+            "EAPP_MAKEFILE_LINKCHECK_DISABLE" \
           ; do
             var_value="$(make -f <(
               echo -e \
                 "-include Makefile.project\nprint_value:\n\t@echo \$(${var_name})"
             ) print_value)"
 
-            environ_value=$([ -z "${var_value}" ] && echo "false" || echo "true")
+            environ_value=$([ -z "${var_value}" ] && echo "false" || echo "${var_value}")
 
             echo "${var_name}=${environ_value}"
 
@@ -72,15 +84,46 @@ jobs:
           done
 
     outputs:
-      EAPP_MAKEFILE_DOCS_DISABLE: ${{ steps.read-environs.outputs.EAPP_MAKEFILE_DOCS_DISABLE }}
-      EAPP_MAKEFILE_FLAKE8_DISABLE: ${{ steps.read-environs.outputs.EAPP_MAKEFILE_FLAKE8_DISABLE }}
-      # SKIPD: EAPP_MAKEFILE_LINKCHECK_DISABLE: ${{ steps.read-environs.outputs.EAPP_MAKEFILE_LINKCHECK_DISABLE }}
-      EAPP_MAKEFILE_PYDOCSTYLE_DISABLE: ${{ steps.read-environs.outputs.EAPP_MAKEFILE_PYDOCSTYLE_DISABLE }}
+      EAPP_MAKEFILE_TESTS_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_TESTS_DISABLE }}
+      EAPP_MAKEFILE_TESTS_WINDOWS_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_TESTS_WINDOWS_DISABLE }}
+      EAPP_MAKEFILE_BLACK_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_BLACK_DISABLE }}
+      EAPP_MAKEFILE_FLAKE8_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_FLAKE8_DISABLE }}
+      EAPP_MAKEFILE_ISORT_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_ISORT_DISABLE }}
+      EAPP_MAKEFILE_DOC8_PIP_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_DOC8_PIP_DISABLE }}
+      EAPP_MAKEFILE_DOC8_POETRY_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_DOC8_POETRY_DISABLE }}
+      EAPP_MAKEFILE_DOCS_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_DOCS_DISABLE }}
+      # SKIPD: Because all projects should pass `twine-check` and `poetry-check`.
+      #   EAPP_MAKEFILE_TWINE_CHECK_DISABLE: ${{
+      #     steps.read-environs.outputs.EAPP_MAKEFILE_TWINE_CHECK_DISABLE }}
+      #   EAPP_MAKEFILE_POETRY_CHECK_DISABLE: ${{
+      #     steps.read-environs.outputs.EAPP_MAKEFILE_POETRY_CHECK_DISABLE }}
+      EAPP_MAKEFILE_PYDOCSTYLE_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_PYDOCSTYLE_DISABLE }}
+      EAPP_MAKEFILE_COVERAGE_DISABLE: ${{
+        steps.read-environs.outputs.EAPP_MAKEFILE_COVERAGE_DISABLE }}
+      # SKIPD: Because all projects should pass `yamllint`.
+      #   EAPP_MAKEFILE_YAMLLINT_DISABLE: ${{
+      #     steps.read-environs.outputs.EAPP_MAKEFILE_YAMLLINT_DISABLE }}
+      # SKIPD: Because we don't run linkcheck from CI, only from local `make lint`:
+      #   EAPP_MAKEFILE_LINKCHECK_DISABLE: ${{
+      #     steps.read-environs.outputs.EAPP_MAKEFILE_LINKCHECK_DISABLE }}
 
   # *** TEST
 
   test:
     runs-on: ${{ matrix.platform }}
+
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_TESTS_DISABLE != 'true'
 
     # CXREF: https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs
     strategy:
@@ -131,10 +174,27 @@ jobs:
       # CXREF: https://github.com/actions/checkout
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # At least one downstream user (`nark`) tests for a version tag.
+          fetch-depth: 0
+
+      - name: Check enablement flags
+        id: check-disablement
+        run: |
+          inhibit_test=false
+          if [ ${{ matrix.platform }} = 'windows-latest' ] \
+            && ${{
+            needs.disablement-detector.outputs.EAPP_MAKEFILE_TESTS_WINDOWS_DISABLE
+          }} = 'true' ]; then
+            inhibit_test=true
+          fi
+          echo "inhibit_test=${inhibit_test}"
+          echo "inhibit_test=${inhibit_test}" >> "$GITHUB_OUTPUT"
 
       # CXREF: https://github.com/actions/setup-python
       - name: Set up Python ${{ matrix.python-version }}
         id: setup-python
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
@@ -163,12 +223,15 @@ jobs:
       - name: Set pip wheels path (Ubuntu/macOS)
         run: echo "PIP_CACHE=~/.local" >> $GITHUB_ENV
         shell: bash
-        if: (runner.os == 'Linux') || (runner.os == 'macOS')
+        if: ${{ (runner.os == 'Linux') || (runner.os == 'macOS')
+          && steps.check-disablement.outputs.inhibit_test == 'false' }}
       - name: Set pip wheels path (Windows)
         run: echo "PIP_CACHE=~/AppData/Local/pip/cache" >> $GITHUB_ENV
         shell: bash
-        if: runner.os == 'Windows'
+        if: ${{ runner.os == 'Windows'
+          && steps.check-disablement.outputs.inhibit_test == 'false' }}
       - name: Load cached $HOME/.local
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
         uses: actions/cache@v3
         with:
           path: ${{ env.PIP_CACHE }}
@@ -177,10 +240,15 @@ jobs:
             }}-${{ hashFiles('.github/workflows/checks.yml')
             }}
       - name: Install Poetry
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
         uses: snok/install-poetry@v1
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
+
+      - name: Install poetry-dynamic-versioning
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
 
       # 2022-10-04: Cache the virtualenv, avoid re-installing packages.
       # Saves ~35s from step time, from 35s to 0s (b/c skips step, because `if:`).
@@ -203,6 +271,7 @@ jobs:
       # USYNC_LOAD_VENV: Multiple jobs in this Yaml share the following steps.
       - name: Load cached venv
         id: cached-poetry-dependencies
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
         uses: actions/cache@v3
         with:
           path: .venv
@@ -213,10 +282,12 @@ jobs:
             }}-${{ hashFiles('.github/workflows/checks.yml')
             }}
       - name: Install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        if: ${{ steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+          && steps.check-disablement.outputs.inhibit_test == 'false' }}
         run: poetry install --no-interaction --with test,project_test
 
       - name: Test
+        if: ${{ steps.check-disablement.outputs.inhibit_test == 'false' }}
         run: |
           poetry run make test
           # DEVs: If you need to test a specific function or class, try, e.g.,:
@@ -247,6 +318,10 @@ jobs:
 
   black:
     runs-on: ubuntu-latest
+
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_BLACK_DISABLE != 'true'
 
     steps:
       - name: Fail if RUN_ONLYing another job
@@ -362,6 +437,10 @@ jobs:
   isort:
     runs-on: ubuntu-latest
 
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_ISORT_DISABLE != 'true'
+
     steps:
       - name: Fail if RUN_ONLYing another job
         run: exit 1
@@ -390,6 +469,10 @@ jobs:
 
   doc8-pip:
     runs-on: ubuntu-latest
+
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_DOC8_PIP_DISABLE != 'true'
 
     steps:
       - name: Fail if RUN_ONLYing another job
@@ -431,6 +514,10 @@ jobs:
 
   doc8-poetry:
     runs-on: ubuntu-latest
+
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_DOC8_POETRY_DISABLE != 'true'
 
     steps:
       - name: Fail if RUN_ONLYing another job
@@ -559,6 +646,11 @@ jobs:
   twine-check:
     runs-on: ubuntu-latest
 
+    # Always-on.
+    #   # needs: disablement-detector
+    #   # NOPE:
+    #   # if: needs.disablement-detector.outputs.EAPP_MAKEFILE_TWINE_CHECK_DISABLE != 'true'
+
     steps:
       - name: Fail if RUN_ONLYing another job
         run: exit 1
@@ -620,6 +712,11 @@ jobs:
 
   poetry-check:
     runs-on: ubuntu-latest
+
+    # Always-on.
+    #   # needs: disablement-detector
+    #   # NOPE:
+    #   # if: needs.disablement-detector.outputs.EAPP_MAKEFILE_POETRY_CHECK_DISABLE != 'true'
 
     steps:
       - name: Fail if RUN_ONLYing another job
@@ -747,6 +844,11 @@ jobs:
     # coverage diffs), so not doing this until I understand better how it
     # all works.
 
+    needs: disablement-detector
+
+    if: ${{ needs.disablement-detector.outputs.EAPP_MAKEFILE_COVERAGE_DISABLE != 'true'
+      && needs.disablement-detector.outputs.EAPP_MAKEFILE_TESTS_DISABLE != 'true' }}
+
     steps:
       - name: Fail if RUN_ONLYing another job
         run: exit 1
@@ -754,6 +856,9 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # At least one downstream user (`nark`) tests for a version tag.
+          fetch-depth: 0
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         id: setup-python
@@ -783,6 +888,9 @@ jobs:
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
+
+      - name: Install poetry-dynamic-versioning
+        run: poetry self add "poetry-dynamic-versioning[plugin]"
 
       # USYNC_LOAD_VENV: Multiple jobs in this Yaml share the following steps.
       - name: Load cached venv
@@ -826,6 +934,10 @@ jobs:
 
   yamllint:
     runs-on: ubuntu-latest
+
+    needs: disablement-detector
+
+    if: needs.disablement-detector.outputs.EAPP_MAKEFILE_YAMLLINT_DISABLE != 'true'
 
     steps:
       - name: Fail if RUN_ONLYing another job

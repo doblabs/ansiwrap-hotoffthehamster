@@ -91,12 +91,29 @@ jobs:
             pip install $INDEX_PIP $PACKAGE_NAME==$VERSION
 
       - name: Infer module name
-        run: echo "MODULE_NAME=${PACKAGE_NAME//-/_}" >> "$GITHUB_ENV"
+        run: |
+          pip install yq
+
+          trim_null="select( . != null )"
+
+          module_name="$(
+            tomlq -r ".tool.poetry.packages[0].include | ${trim_null}" "pyproject.toml"
+          )"
+
+          if [ -z "${module_name}" ]; then
+            module_name="${PACKAGE_NAME//-/_}"
+          fi
+
+          echo "MODULE_NAME=${module_name}" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Load it!
+      - name: Check version
         run: |
           python -c "import $MODULE_NAME; print($MODULE_NAME.__version__)"
+
+          [ "${VERSION}" = \
+            "$(python -c "import $MODULE_NAME; print($MODULE_NAME.__version__)")" ] \
+            || exit 1
         shell: bash
 
   # ***
@@ -171,6 +188,27 @@ jobs:
 
       # ***
 
+      - name: Infer version command
+        id: infer-version-command
+        run: |
+          pip install yq
+
+          trim_null="select( . != null )"
+
+          version_cmd="$(
+            tomlq -r \
+              ".tool.easy_as_pypi.smoke_test_version | ${trim_null}" \
+              "pyproject.toml"
+          )"
+
+          if [ -z "${version_cmd}" ]; then
+            version_cmd="$PACKAGE_NAME version"
+          fi
+
+          echo "version_cmd=${version_cmd}" >> "$GITHUB_OUTPUT"
+
+      # ***
+
       # See comment above: The first one or few pipx-install don't
       # always find the version.
       # - 2023-10-08: So far I've only ever seen one retry needed,
@@ -205,15 +243,17 @@ jobs:
       #            and application version are different.
       - name: Run it!
         run: |
-          echo "Checking \$PACKAGE_NAME version » $VERSION"
-          # FIXME/2023-10-01 14:00: This echo probably unnecessary.
-          echo "\$ $PACKAGE_NAME version"
-          $PACKAGE_NAME version
+          version_cmd="${{ steps.infer-version-command.outputs.version_cmd }}"
+          echo "Checking <app-name> version » $VERSION"
+          echo "\$ ${version_cmd}"
+          ${version_cmd}
         shell: bash
 
       - name: Check version
         run: |
-          [ "$($PACKAGE_NAME version)" = "$PACKAGE_NAME version $VERSION" ] \
+          version_cmd="${{ steps.infer-version-command.outputs.version_cmd }}"
+          [ "$($version_cmd)" = \
+            "$(echo ${version_cmd} | cut -d' ' -f1) version $VERSION" ] \
             || exit 1
         shell: bash
 

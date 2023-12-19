@@ -36,10 +36,18 @@
 *.py[cod]
 __pycache__/
 
+/.pyproject-doc8/.venv/
 # Editable pyproject.toml and .venv-<project> — `make develop`.
 # - USYNC: EDITABLE_DIR ?= .pyproject-editable
 /.pyproject-editable/
-.venv*/
+# This was previously `.venv*/`, but remove trailing slash to support symlinks.
+# - Use case: When upgrading a dependency with lots of deprecation warnings,
+#   it might be useful to jump between venv's to compare behavior, e.g.,
+#     $ ls -1dl .venv*
+#     ... .venv-nark -> .venv-nark--SQLA-1.4/
+#     ... .venv-nark--SQLA-1.3/
+#     ... .venv-nark--SQLA-1.4/
+.venv-*
 
 # USYNC: UPFUL_PYPROJECT_TMPL_CACHE=".pyproject-cache.data"
 # - CXREF: ~/.kit/py/easy-as-pypi/bin/update-faithful

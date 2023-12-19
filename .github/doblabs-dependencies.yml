@@ -64,6 +64,9 @@ doblabs/human-friendly_pedantic-timedelta:
 doblabs/sqlalchemy-migrate-hotoffthehamster:
   - doblabs/nark
 
+doblabs/tempita-hotoffthehamster:
+  - doblabs/sqlalchemy-migrate-hotoffthehamster
+
 # ***
 
 doblabs/easy-as-pypi:
