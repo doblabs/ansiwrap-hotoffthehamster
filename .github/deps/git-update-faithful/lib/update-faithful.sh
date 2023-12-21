@@ -1473,6 +1473,7 @@ update_faithfuls_commit_changes () {
     ${sourcerer}"
   fi
 
+  # USYNC: The "- Source" commit line here, and the 2 sed commands below.
   echo "\
 ${commit_subject}
 
@@ -1488,15 +1489,16 @@ ${commit_subject}
 #
 #   Deps: Update faithfuls
 #
-#   - Source: easy-as-pypi @ 0477f4de66eb35f15f651af906dfb0936a2089a1
+#   - Source: easy-as-pypi @ 0477f4de66eb [1.2.3]
 latest_commit_read_canon_head () {
   local local_file="$1"
 
+  # USYNC: The "- Source" commit line above, and the 2 sed commands.
   git --no-pager log --format=%B -n 1 -- "${local_file}" \
     | head -3 \
     | tail -1 \
     | sed '/^- Source: .* @ /!d' \
-    | sed 's/^- Source: .* @ //'
+    | sed 's/^- Source: .* @ \([[:alnum:]]\+\).*$/\1/'
 }
 
 # ***

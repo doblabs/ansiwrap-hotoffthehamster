@@ -231,22 +231,22 @@ wrangle_tag () {
     #   case stale one persists elsewhere.
     if ${tag_exists} || [ "${tag_scope}" = "HEAD" ]; then
       git tag -d "${tag_name}" \
-        > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1 || true
+        >> "${GIT_PUSH_OUTPUT_DUMP}" 2>&1 || true
 
       if ${CI:-false}; then
         git push "${EAPP_CI_REMOTE_NAME}" ":refs/tags/${tag_name}" \
-          > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+          >> "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
       fi
     fi
   elif [ -n "${new_tag_value}" ]; then
     # Create tag if new value not non-empty and not "false".
-    if ! ${tag_exists}; then
+    if ! ${tag_exists} || [ "${new_tag_value}" != "${old_tag_value}" ]; then
       git tag -f -a "${tag_name}" -m "${new_tag_value}" \
-        > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+        >> "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
 
       if ${CI:-false}; then
         git push -f "${EAPP_CI_REMOTE_NAME}" "refs/tags/${tag_name}" \
-          > "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
+          >> "${GIT_PUSH_OUTPUT_DUMP}" 2>&1
       fi
     fi
   fi
