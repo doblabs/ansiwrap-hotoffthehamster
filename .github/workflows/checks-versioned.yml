@@ -27,10 +27,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  versioned-checks-runner:
-    uses: ./.github/workflows/checks.yml
-    secrets: inherit
-
   # SAVVY: This job should never fail because the on.push.tags pattern
   #        match above should act the same as this Bash pattern match.
   # - This job is from before checks were split into checks-unspecial.yml
@@ -40,7 +36,6 @@ jobs:
   #   assessment is correct, with an assert job (see below).)
   check-is-version-tag:
     runs-on: ubuntu-latest
-    needs: versioned-checks-runner
     steps:
       - name: Test event type and ref is proper version tag
         id: check-is-version-tag
@@ -50,8 +45,6 @@ jobs:
           ]]; then
               echo "is_version_tag=true" >> $GITHUB_OUTPUT
           fi
-        env:
-          GH_REF_TYPE: ${{ github.ref_type }}
       - name: Report detected maybe
         if: steps.check-is-version-tag.outputs.is_version_tag == 'true'
         run: echo "Version tag detected"
@@ -60,16 +53,53 @@ jobs:
 
   # LATER/2023-12-05: If this never fails, remove this job and check-is-version-tag.
   assert-patterns-agree:
-    runs-on: ubuntu-latest
     needs: check-is-version-tag
     if: needs.check-is-version-tag.outputs.is_version_tag == 'false'
+    runs-on: ubuntu-latest
     steps:
       # Unreachable: Per long comment above, both tags pattern should agree.
       - run: false  # Think of this as assert(false), ka-boom-boom
 
-  release-gh-runner:
+  # ***
+
+  check-if-prerelease:
     needs: check-is-version-tag
     if: needs.check-is-version-tag.outputs.is_version_tag == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # USYNC: See same-named, similar steps in: checks-versioned, release-github.
+      - name: Check if prerelease
+        id: check-if-prerelease
+        run: |
+          is_prerelease=false
+
+          # Note the v?: Don't care!
+          if ! echo "${{ github.event.ref }}" \
+            | grep -q -E -e "^refs/tags/v?[0-9]+\.[0-9]+\.[0-9]+$" \
+          ; then
+            is_prerelease=true
+          fi
+
+          echo "is_prerelease=${is_prerelease}"
+
+          echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
+
+    outputs:
+      is_prerelease: ${{ steps.check-if-prerelease.outputs.is_prerelease }}
+
+  # ***
+
+  versioned-checks-runner:
+    needs: check-if-prerelease
+    uses: ./.github/workflows/checks.yml
+    secrets: inherit
+    with:
+      prerelease: ${{ needs.check-if-prerelease.outputs.is_prerelease == 'true' }}
+
+  # ***
+
+  release-gh-runner:
+    needs: versioned-checks-runner
     uses: ./.github/workflows/release-github.yml
     secrets: inherit
     with:

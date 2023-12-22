@@ -460,9 +460,7 @@ jobs:
            && contains(github.event.pull_request.labels.*.name, 'ci-version-skip')
            && ! contains(github.event.pull_request.labels.*.name, 'ci-inhibit-cascade'))
           || (github.event_name != 'pull_request'
-              && inputs.cascade-dispatch
-              && (inputs.bump-part == 'skip'
-                  || inputs.cascade-versioning == 'skip')))
+              && inputs.cascade-dispatch))
       && (needs.bump-version-maybe.result == 'skipped'
           || (needs.bump-version-maybe.result == 'success'
               && needs.bump-version-maybe.outputs.is_bumpable == 'false')) }}

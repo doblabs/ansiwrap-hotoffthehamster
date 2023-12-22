@@ -1,0 +1,122 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+name: 'Prepare Poetry assets'
+
+description: 'Setup top-level pyproject.toml and poetry.lock for pre-release vs. normal work'
+
+inputs:
+  prerelease:
+    description: 'Set true if pre-release context, else leave false for normal'
+    type: boolean
+    required: true
+    default: false
+
+# outputs:
+#   nothing:
+#     description: "Nothing"
+#     value: null
+
+runs:
+  using: "composite"
+  steps:
+    - name: Trace vars
+      # While not normally required in job steps,
+      # 'shell' is required in action steps.
+      shell: bash
+      run: |
+        echo "inputs.prerelease: ${{ inputs.prerelease }}"
+        echo "github.action_path: ${{ github.action_path }}"
+
+    # The `make --eval` command is not recognized by default macOS make:
+    #   /Applications/Xcode_14.2.app/Contents/Developer/usr/bin/make:
+    #     unrecognized option `--eval=print-var: ; @echo $(PYPROJECT_PRERELEASE_DIR)'
+
+    # REFER: https://github.com/Homebrew/actions/tree/master/setup-homebrew
+    - name: Set up Homebrew
+      # REFER:
+      # https://docs.github.com/en/actions/learn-github-actions/contexts#runner-context
+      if: runner.os == 'macOS'
+      uses: Homebrew/actions/setup-homebrew@master
+
+    - name: Set up make
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install make
+        # Where, e.g.,
+        #   $ make -v
+        #   GNU Make 3.81
+        #   $ gmake -v
+        #   GNU Make 4.4.1
+
+    # ALERT: Assumes EAPP-infused repo is checked out.
+
+    # NOICE: DRY: Use `make --eval` to add temp. make target that prints
+    # the pre-release pyproject.toml directory (avoids USYNC/hardcoding).
+    - name: Determine pyproject.toml to use (normal or alpha)
+      shell: bash
+      run: |
+        pyproject_dir="."
+
+        MAKE=make
+        if command -v gmake > /dev/null; then
+          MAKE=gmake
+        fi
+
+        if [ "${{ inputs.prerelease }}" = "true" ]; then
+          pyproject_dir="$(
+            ${MAKE} \
+              --eval='print-var: ; @echo $(PYPROJECT_PRERELEASE_DIR)' \
+              print-var
+          )"
+        fi
+
+        echo "PYPROJECT_DIR=${pyproject_dir}"
+
+        echo "PYPROJECT_DIR=${pyproject_dir}" >> "${GITHUB_ENV}"
+
+    - name: Verify Poetry assets — pyproject.toml and poetry.lock
+      shell: bash
+      run: |
+        assets_exist () {
+          local pyproject_dir="${1:-.}"
+
+          [ -f "${pyproject_dir}/pyproject.toml" ] \
+          && [ -f "${pyproject_dir}/poetry.lock" ]
+        }
+
+        if [ "${{ inputs.prerelease }}" = "true" ]; then
+          if ! assets_exist "${PYPROJECT_DIR}"; then
+            >&2 echo "ERROR: Where are the ${PYPROJECT_DIR} Poetry assets?"
+            >&2 echo "- Missing pyproject.toml and/or poetry.lock"
+            >&2 echo "- HINT: Run the update-deps.yml workflow"
+            >&2 echo "  - OR: Run \`make prepare-poetry-prerelease\`"
+            >&2 echo "        and then commit the two files to the repo"
+
+            exit 1
+          fi
+        elif ! assets_exist; then
+          >&2 echo "ERROR: Missing pyproject.toml and/or poetry.lock"
+          >&2 echo "- HINT: Run the update-deps.yml workflow"
+          >&2 echo "  - OR: Run \`make install\`"
+          >&2 echo "        and then commit the lock file to the repo"
+
+          exit 1
+        fi
+
+    # Note that `poetry -C "${PYPROJECT_DIR}" build` won't work if it
+    # references anything from root, so clobber root's lock and toml.
+    - name: Prepare Pre-release Poetry assets — pyproject.toml and poetry.lock
+      if: inputs.prerelease
+      shell: bash
+      run: |
+        if [ "${PYPROJECT_DIR}" != "." ]; then
+          command cp -f "${PYPROJECT_DIR}/poetry.lock" "poetry.lock"
+          command cp -f "${PYPROJECT_DIR}/pyproject.toml" "pyproject.toml"
+        fi
