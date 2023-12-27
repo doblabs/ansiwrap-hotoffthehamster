@@ -1,0 +1,101 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+# TIMES/2023-12-26: Basic py3.12 EAPP pytest runtimes, caches vs. not cached:
+# - For cache-strategy: 'actions/cache'
+#   - Ubuntu:   5 secs. vs 28 secs.
+#   - macOS:   10 secs. vs 43 secs.
+#   - Windows: 31 secs. vs 52 secs.
+# - For cache-strategy: 'actions/setup-python'
+#   - Ubuntu:  10 secs. vs 19 secs.
+#   - macOS:   32 secs. vs 48 secs.
+#   - Windows: 25 secs. vs 35 secs.
+#
+# SAVVY: Regardless of times, the 'actions/cache' strategy is the better one.
+# - Mostly because it avoids the awkward cache-dependency-path abuse
+#   so actions/setup-python.
+# - Also because I like that snok/install-poetry installs poetry locally.
+# - And somewhat because it uses actions/cache. It doesn't seem like
+#   the actions/setup-python cache mechanism adds much value, except
+#   maybe for extremely simple projects (that only ever calls poetry-
+#   install on one set of deps).
+# - Oh, also actions/setup-python is quite blathery, and redundantly so.
+
+name: 'Install Python and load venv from cache'
+
+# ***
+
+inputs:
+  poetry-install-with:
+    description: 'Poetry install dependency groups to include'
+    type: string
+    required: true
+
+  poetry-install-extras:
+    description: 'Poetry install extras groups to include'
+    type: string
+    required: false
+
+  poetry-install-root:
+    description: 'Set false to not install root project'
+    type: boolean
+    default: true
+
+  python-version:
+    description: 'Python version'
+    type: string
+    required: true
+
+  prerelease:
+    description: 'Set true to use pre-release poetry.lock'
+    type: boolean
+    default: false
+
+  cache-strategy:
+    type: string
+    # Options: 'actions/cache', 'actions/setup-python', 'off'.
+    default: 'actions/cache'
+
+  disable-cache:
+    description: 'Set true to disable caching'
+    type: boolean
+    default: false
+
+# ***
+
+runs:
+  using: "composite"
+  steps:
+    - name: Prepare Poetry assets — pyproject.toml and poetry.lock
+      uses: ./.github/actions/setup-poetry-assets
+      with:
+        prerelease: ${{ inputs.prerelease }}
+
+    # *** Python path — venv from actions/cache
+
+    - name: Install Python and load venv from actions/cache
+      if: ${{ inputs.cache-strategy == 'actions/cache' }}
+      uses: ./.github/actions/load-venv-actions-cache-cache
+      with:
+        poetry-install-with: ${{ inputs.poetry-install-with }}
+        poetry-install-extras: ${{ inputs.poetry-install-extras }}
+        poetry-install-root: ${{ inputs.poetry-install-root }}
+        python-version: ${{ inputs.python-version }}
+        disable-cache: ${{ inputs.disable-cache }}
+
+    # *** Python path — venv from actions/setup-python
+
+    - name: Install Python and load venv from actions/cache
+      if: ${{ inputs.cache-strategy == 'actions/setup-python' }}
+      uses: ./.github/actions/load-venv-setup-python-cache
+      with:
+        poetry-install-with: ${{ inputs.poetry-install-with }}
+        poetry-install-extras: ${{ inputs.poetry-install-extras }}
+        poetry-install-root: ${{ inputs.poetry-install-root }}
+        python-version: ${{ inputs.python-version }}
+        disable-cache: ${{ inputs.disable-cache }}

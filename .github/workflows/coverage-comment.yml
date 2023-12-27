@@ -39,19 +39,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install poetry
-        run: pipx install poetry
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        id: setup-python
-        uses: actions/setup-python@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'poetry'
+          # At least one downstream user (`nark`) tests for a version,
+          # which poetry-dynamic-versioning reads from tags.
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --with test,project_test
+      - name: Install Python and load venv from cache
+        uses: ./.github/actions/install-python-and-poetry
+        with:
+          poetry-install-with: test,project_test
+          poetry-install-root: true
+          python-version: ${{ env.PYTHON_VERSION }}
+          # Use defaults:
+          #  prerelease: false
+          #  cache-strategy: 'actions/cache'
+          #  disable-cache: false
 
       - name: Coverage compute
         run: poetry run make _coverage_sqlite

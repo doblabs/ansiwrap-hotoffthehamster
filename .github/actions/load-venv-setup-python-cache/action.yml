@@ -1,0 +1,277 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+name: >
+  Install project
+  — non cached: $ pipx install poetry
+  — actions/setup-python: (.venv) $ poetry install
+
+inputs:
+  poetry-install-with:
+    description: 'Poetry install dependency groups to include'
+    type: string
+    required: true
+
+  poetry-install-extras:
+    description: 'Poetry install extras groups to include'
+    type: string
+    required: false
+
+  poetry-install-root:
+    description: 'Set false to not install root project'
+    type: boolean
+    default: true
+
+  python-version:
+    description: 'Python version'
+    type: string
+    required: true
+
+  disable-cache:
+    description: 'Set true to disable caching'
+    type: boolean
+    default: false
+
+# REFER: Step order from docs:
+#   pipx-install-poetry,
+#     setup-python w/ cache,
+#       then poetry-install.
+# - Inferring from setup-python docs and explicitly from actions/cache@v3 docs
+#   that, on cache miss, it's the *next step* after a cache miss that is used
+#   to create the new cache.
+# https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md#caching-packages
+#
+# SAVVY: You cannot cache the `pipx install poetry` step, or at least
+# failed for me.
+#
+# - I tried to cache the pipx home directory:
+#
+#     $ pipx environment --value PIPX_HOME
+#     # Linux: /opt/pipx
+#     # macOS: /usr/local/Cellar/pipx/1.3.3
+#     # Windows: C:\Program Files (x86)\pipx
+#
+#   - But actions/cache would always cache-miss, and then in
+#     the "Post" job, you'd see the message:
+#
+#       Warning: Input required and not supplied: path
+#
+#   - Without digging deeper, I'd guess the error message is misleading.
+#
+#     - Also we're not running as root, and that's dirs not ours, e.g.,
+#
+#        $ ls -lad "$(pipx environment --value PIPX_HOME)"
+#        drwxrwxrwx+ 6 root root 4096 Dec 17 22:20 /opt/pipx
+#
+# - So that's one difference between this approach and snok/install-poetry:
+#   - In this approach (pipx install poetry), we don't cache Poetry;
+#     but in the other file (snok/install-poetry), we do cache Poetry.
+
+# SAVVY: GHA clears cache after 7 days, and after 10 GB.
+
+runs:
+  using: "composite"
+  steps:
+    - name: Record time for profiling
+      id: start-clock-poetry
+      shell: bash
+      run: echo "CLOCK_0=$(date +%s)" >> "${GITHUB_OUTPUT}"
+
+    - name: Install poetry (& populate cache)
+      shell: bash
+      run: pipx install poetry
+
+    - name: Profiling — pipx install poetry
+      shell: bash
+      run: |
+        time_secs="$((
+          $(date +%s) - ${{ steps.start-clock-poetry.outputs.CLOCK_0 }}
+        ))"
+
+        # W/out cache: Linux: 6s.
+        echo "time-secs: ${time_secs} secs. [pipx install poetry]"
+
+    # ***
+
+    # WONKY: Avoid cache hits with other jobs.
+    # - I don't see a way to influence the actions/setup-python cache
+    #   key other than via "cache-dependency-path".
+    #   - Create unique runtime files to avoid cross-job hits,
+    #     and so the --with and --extras and including in the
+    #     key value.
+    #   - This feels like a limitation; and convinces me that I like the
+    #     other approach better, `cache-strategy: actions/cache`.
+    - name: Create cache key file kludges
+      shell: bash
+      run: |
+        mkdir .key-fakers
+
+        touch .key-fakers/job
+        touch .key-fakers/with
+        touch .key-fakers/root
+        touch .key-fakers/extras
+
+        # Note that I don't think empty files help with the key;
+        # it's their contents that affects the hash.
+        echo "${{ github.job }}" > ".key-fakers/job"
+        if [ -n "${{ inputs.poetry-install-with }}" ]; then
+          echo "${{ inputs.poetry-install-with }}" > ".key-fakers/with"
+        fi
+        echo "${{ inputs.poetry-install-root }}" > ".key-fakers/root"
+        if [ -n "${{ inputs.poetry-install-extras }}" ]; then
+          echo "${{ inputs.poetry-install-extras }}" > ".key-fakers/extras"
+        fi
+
+    - name: Start profiling clock
+      id: set-setup-vars
+      shell: bash
+      run: |
+        # Record time for profiling
+        echo "CLOCK_0=$(date +%s)" >> "${GITHUB_OUTPUT}"
+
+    - name: Set up Python ${{ inputs.python-version }} — without cache
+      if: ${{ (true
+               && inputs.poetry-install-with == ''
+               && inputs.poetry-install-extras == ''
+               && inputs.poetry-install-root == 'false')
+              || inputs.disable-cache != 'false' }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # CXREF: https://github.com/actions/setup-python
+    - name: Set up Python ${{ inputs.python-version }} — with cache
+      id: setup-python
+      if: ${{ (false
+               || inputs.poetry-install-with != ''
+               || inputs.poetry-install-extras != ''
+               || inputs.poetry-install-root != 'false')
+              && inputs.disable-cache == 'false' }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+        # "cache the global cache directory"
+        # CXREF: https://github.com/actions/setup-python#caching-packages-dependencies
+        #   https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md#caching-packages
+        # "For poetry, the action will cache virtualenv directories --
+        #  one for each poetry project found"
+        # - In practice, you'll see 'cache-dir' in the actions/setup-python output.
+        #   - Linux: cache-dir = "/home/runner/.cache/pypoetry"
+        #   - macOS: cache-dir = "/Users/runner/Library/Caches/pypoetry"
+        #   - Windows: cache-dir = "C:\\Users\\runneradmin\\AppData\\Local\\pypoetry\\Cache"
+        cache: 'poetry'
+        # poetry cache defaults to using '**/poetry.lock' hash in cache key,
+        # but we don't want to include the pre-release and any other locks,
+        # just the one we deliberately placed, and the only one the calling
+        # job cares about.
+        # - We also add the github.job, --with, and --extra parts to the key,
+        #   as discussed above, using ephemeral files. Because there doesn't
+        #   seem to be another way to avoid cache conflicts with other jobs
+        #   that poetry-install different deps.
+        cache-dependency-path: |
+          poetry.lock
+          .key-fakers/job
+          .key-fakers/with
+          .key-fakers/root
+          .key-fakers/extras
+
+    # macOS: Previous prints a lot, this block 4 times:
+    #
+    #   /usr/local/opt/pipx_bin/poetry config --list
+    #   cache-dir = "/Users/runner/Library/Caches/pypoetry"
+    #   experimental.system-git-client = false
+    #   installer.max-workers = null
+    #   installer.modern-installation = true
+    #   installer.no-binary = null
+    #   installer.parallel = true
+    #   repositories.testpypi.url = "https://test.pypi.org/simple/"
+    #   virtualenvs.create = true
+    #   virtualenvs.in-project = null
+    #   virtualenvs.options.always-copy = false
+    #   virtualenvs.options.no-pip = false
+    #   virtualenvs.options.no-setuptools = false
+    #   virtualenvs.options.system-site-packages = false
+    #   virtualenvs.path = "{cache-dir}/virtualenvs"  # /Users/runner/Library/Caches/pypoetry/virtualenvs
+    #   virtualenvs.prefer-active-python = false
+    #   virtualenvs.prompt = "{project_name}-py{python_version}"
+    #   warnings.export = true
+    #
+    # Then this:
+    #
+    #   /usr/local/opt/pipx_bin/poetry env use /Users/runner/hostedtoolcache/Python/3.12.1/x64/bin/python
+    #   Creating virtualenv easy-as-pypi-euPmTrft-py3.12 in /Users/runner/Library/Caches/pypoetry/virtualenvs
+    #   Using virtualenv: /Users/runner/Library/Caches/pypoetry/virtualenvs/easy-as-pypi-euPmTrft-py3.12
+    #   /usr/local/opt/pipx_bin/poetry env use /Users/runner/hostedtoolcache/Python/3.12.1/x64/bin/python
+    #   Using virtualenv: /Users/runner/Library/Caches/pypoetry/virtualenvs/easy-as-pypi-euPmTrft-py3.12
+    #   poetry cache is not found
+
+    # ***
+
+    # USYNC: Similar in both cache actions
+    - name: Install dependencies (& populate cache)
+      if: ${{ (false
+               || inputs.poetry-install-with != ''
+               || inputs.poetry-install-extras != ''
+               || inputs.poetry-install-root != 'false')
+              && steps.setup-python.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        if false \
+          || [ "${POETRY_INSTALL_WITH}" = "dist,project_dist" ] \
+          || [ "${POETRY_INSTALL_WITH}" = "test,project_test" ] \
+        ; then
+          # Installs to .venv/lib/pythonX.X/site-packages/
+          poetry self add "poetry-dynamic-versioning[plugin]"
+        fi
+
+        with=""
+        if [ -n "${POETRY_INSTALL_WITH}" ]; then
+          with="--with ${POETRY_INSTALL_WITH}"
+        fi
+
+        extras=""
+        if [ -n "${POETRY_INSTALL_EXTRAS}" ]; then
+          extras="--extras ${POETRY_INSTALL_EXTRAS}"
+        fi
+
+        echo "poetry install --no-interaction --no-root ${with} ${extras}"
+
+        poetry install --no-interaction --no-root ${with} ${extras}
+        # OUTPUT: Doesn't print "Creating virtualenv <pkg> in <path>"
+        # like the other apporach does, so virtualenv must've been
+        # setup by previous step? Or maybe it's because the other
+        # config option in unset, virtualenvs.in-project?
+      env:
+        POETRY_INSTALL_WITH: ${{ inputs.poetry-install-with }}
+        POETRY_INSTALL_EXTRAS: ${{ inputs.poetry-install-extras }}
+
+    - name: Cache analysis — actions/setup-python
+      shell: bash
+      run: |
+        time_secs="$((
+          $(date +%s) - ${{ steps.set-setup-vars.outputs.CLOCK_0 }}
+        ))"
+
+        echo "time-secs: ${time_secs} secs. [poetry-install]"
+
+        echo "...outputs.cache-hit: ${{ steps.setup-python.outputs.cache-hit }}"
+        echo "...outputs.python-version: ${{ steps.setup-python.outputs.python-version }}"
+
+    # ***
+
+    # DUNNO: Is this deliberately separate from previous poetry-install
+    # so that the app package is not cached? Or maybe so that if it is
+    # cached, this'll ensure it's undated after uncaching.
+    - name: Install root project
+      if: ${{ inputs.poetry-install-root != 'false' }}
+      shell: bash
+      run: |
+        echo "poetry install --no-interaction"
+        poetry install --no-interaction
+
+    # ***

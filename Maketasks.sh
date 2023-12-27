@@ -32,6 +32,10 @@ make_develop () {
 
   _pyenv_prepare_shell "${VENV_PYVER}"
 
+  # Support `workon` from https://github.com/landonb/virtualenvwrapper
+  # from all pyenv envs.
+  pip install virtualenvwrapper
+
   # IGNOR: This fcn. sets VENV_CREATED
   _venv_manage_and_activate "${VENV_NAME}" "${VENV_ARGS}" "" "${VENV_NAME}"
 
@@ -486,7 +490,7 @@ make_pyproject_prerelease () {
   #   - REFER: https://github.com/python-poetry/poetry/issues/5621
   awk ' \
     match($0, /^('${concat_pjs}')\s*=\s*"([<>=^]{1,2}\s*[0-9]+[^"]*)"/, matches) { \
-      print matches[1] " = { version = \"" matches[2] "\", source = \"testpypi\" }"; \
+      print matches[1] " = { version = \"" matches[2] "\", source = \"testpypi\", allow-prereleases = true }"; \
       next; \
     } 1 \
   ' "pyproject.toml" >> "${PYPROJECT_PRERELEASE_DIR}/pyproject.toml"

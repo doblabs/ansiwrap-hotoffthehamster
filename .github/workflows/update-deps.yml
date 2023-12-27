@@ -191,15 +191,16 @@ jobs:
           #  token: ${{ github.token }}
           token: ${{ secrets.USER_PAT }}
 
-      - name: Install poetry
-        run: pipx install poetry
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        id: setup-python
-        uses: actions/setup-python@v4
+      - name: Install Python and load venv from cache
+        uses: ./.github/actions/install-python-and-poetry
         with:
+          poetry-install-with: ''
+          poetry-install-root: false
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'poetry'
+          # Use defaults:
+          #  prerelease: false  # let update-poetry manage
+          #  cache-strategy: 'actions/cache'
+          #  disable-cache: false
 
       - name: Run bin/update-poetry
         id: run-update-poetry

@@ -147,23 +147,19 @@ jobs:
 
       # ***
 
-      - name: Install poetry
-        run: pipx install poetry
+      - name: Install Python and load venv from cache
+        uses: ./.github/actions/install-python-and-poetry
+        with:
+          poetry-install-with: ''
+          poetry-install-root: false
+          python-version: ${{ env.PYTHON_VERSION }}
+          prerelease: ${{ steps.check-if-prerelease.outputs.is_prerelease == 'true' }}
+          # Use defaults:
+          #  cache-strategy: 'actions/cache'
+          #  disable-cache: false
 
       - name: Install poetry-dynamic-versioning
         run: poetry self add "poetry-dynamic-versioning[plugin]"
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        id: setup-python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'poetry'
-
-      - name: Prepare Poetry assets — pyproject.toml and poetry.lock
-        uses: ./.github/actions/setup-poetry-assets
-        with:
-          prerelease: ${{ steps.check-if-prerelease.outputs.is_prerelease == 'true' }}
 
       - name: Poetry build
         run: |

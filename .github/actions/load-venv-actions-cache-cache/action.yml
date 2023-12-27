@@ -1,0 +1,339 @@
+# vim:tw=0:ts=2:sw=2:et:norl
+# Author: Landon Bouma <https://tallybark.com/>
+# Project: https://github.com/doblabs/easy-as-pypi#🥧
+# License: MIT
+# yamllint disable rule:line-length
+
+---
+
+name: >
+  Install project
+  — actions/cache: snok/install-poetry
+  — actions/cache: (.venv) $ poetry install
+
+# ***
+
+inputs:
+  poetry-install-with:
+    description: 'Poetry install dependency groups to include'
+    type: string
+    required: true
+
+  poetry-install-extras:
+    description: 'Poetry install extras groups to include'
+    type: string
+    required: false
+
+  poetry-install-root:
+    description: 'Set false to not install root project'
+    type: boolean
+    default: true
+
+  python-version:
+    description: 'Python version'
+    type: string
+    required: true
+
+  disable-cache:
+    description: 'Set true to disable caching'
+    type: boolean
+    default: false
+
+# ***
+
+# Cache the poetry exectuable install, under ~/.local.
+# - This includes ~/.local/bin/poetry and ~/.local/venv.
+# - Using cache has been observed on Linux to cut runtime by 67%,
+#   e.g., from 15s to 5s.
+# - Note the ~/.local cache key uses this file's hash, so it's
+#   invalidated whenever this Yaml changes.
+
+# Also cache the poetry virtualenv it creates.
+# - We set poetry's `virtualenvs-in-project` so local .venv/ is used
+#   when we run poetry-install.
+#   - Then the poetry-install step can use a .venv/ cache.
+
+# CXREF:
+#   https://github.com/actions/cache
+#   https://github.com/snok/install-poetry/
+#   https://www.peterbe.com/plog/install-python-poetry-github-actions-faster
+
+runs:
+  using: "composite"
+  steps:
+    # CXREF: https://github.com/actions/setup-python
+    - name: Set up Python ${{ inputs.python-version }} — without cache
+      id: setup-python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+        # See load-venv-actions-cache for `cache: 'poetry'` usage.
+
+    # ***
+
+    - name: Set poetry base path (Ubuntu/macOS)
+      if: ${{ (runner.os == 'Linux') || (runner.os == 'macOS') }}
+      shell: bash
+      run: |
+        # E.g., /home/runner or /Users/runner
+        echo "POETRY_BASE=${HOME}/.local"
+        echo "POETRY_BASE=${HOME}/.local" >> ${GITHUB_ENV}
+
+    # On Windows, ${HOME} is /c/Users/runneradmin, but actions/cache
+    # won't recognize the cache path unless it uses Windows backward-
+    # slash seps, e.g., C:\Users\runneradmin
+    #
+    # The error looks like this:
+    #   Warning: Path Validation Error: Path(s) specified in the action
+    #     for caching do(es) not exist, hence no cache is being saved.
+    #
+    # We can form the proper Windows path with Windows environs:
+    #   HOMEDRIVE=C:
+    #   HOMEPATH='\Users\runneradmin'
+
+    - name: Set poetry base path (Windows)
+      if: ${{ runner.os == 'Windows' }}
+      shell: bash
+      run: |
+        # E.g., C:\Users\runneradmin\.local
+        echo "POETRY_BASE=${HOMEDRIVE}${HOMEPATH}\.local"
+        echo "POETRY_BASE=${HOMEDRIVE}${HOMEPATH}\.local" >> $GITHUB_ENV
+
+    # Record time for profiling
+    - id: start-clock-poetry
+      shell: bash
+      run: echo "CLOCK_0=$(date +%s)" >> "${GITHUB_OUTPUT}"
+
+    # ***
+
+    # SAVVY: To check if cache is saved, check "Post" job.
+
+    # SAVVY: Use github.job name, otherwise caching fails, e.g.,:
+    #
+    #   Failed to save: Unable to reserve cache with key dotlocal-Linux-...,
+    #     another job may be creating this cache. More details: Cache already
+    #     exists. Scope: refs/heads/liminal, Key: dotlocal-Linux-..., Version: ....
+
+    # TRACK: Refer here if "Unable to find installation candidates" happens again.
+    # - A downstream project's pre-release checks were failing:
+    #   - This step was a cache hit, loading ~/.local and the Poetry binary.
+    #   - The venv cache below was a miss, and the poetry-install step after
+    #     that runs on miss blurted "Unable to find installation candidates".
+    #   - When cache was skipped, the job succeeded however.
+    #   - We didn't dig deeper at the time, so we didn't confirm exactly what
+    #     subkey(s) to add.
+    #     - The old key was just: runner.os, python-version, and hashed checks.yml.
+    #     - The new key was updated to include: github.job, and to hash
+    #       Makefile, Maketasks.sh, and poetry.lock.
+    #       - But we did't go through the release cycle again to verify the
+    #         problem was truly gone. Nor did we revert to the old key to
+    #         definitively verify which subkey(s) fix the problem. So we'll
+    #         leave this long comment instead and remain vigilant in case it
+    #         happens again.
+    #   - The latest subkey makeup is refined further:
+    #     - It seems unnecessary to add the Makefile or Maketasks.sh hashes.
+    #     - It also seems unnecessary to add the poetry.lock hash here, because
+    #       this cache is for the Poetry binary. That's because it doesn't
+    #       include the pip wheel cache, and it seems more likely it was a
+    #       stale pip wheel cache causing the original issue.
+    #       - That is, this step only caches ~/.local, but pip wheels are at
+    #         ~/.cache/pip, or at least that's my understanding. So how could
+    #         the 'poetry.lock' hash make any difference here?
+    #       - But adding 'poetry.lock' also doesn't hurt.
+    #   - Oddly, it was only the Ubuntu Python 3.9 test that failed.
+    #     But the other OS and Python version tests passed.
+    #     - So yeah, no, I'm not convinced we won't see this issue again.
+
+    - name: Load cached POETRY_BASE — ${{ env.POETRY_BASE }} — ($HOME/.local)
+      id: cached-poetry
+      if: ${{ inputs.disable-cache == 'false' }}
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.POETRY_BASE }}
+        key: dotlocal-${{ runner.os
+          }}-${{ github.job
+          }}-${{ steps.setup-python.outputs.python-version
+          }}-${{ hashFiles('poetry.lock')
+          }}-${{ hashFiles('.github/actions/load-venv-actions-cache-cache/action.yml')
+          }}
+
+    # https://github.com/snok/install-poetry
+    # - Installs `poetry` to ~/.local/bin on all OSes, and venv files under ~/.local
+    - name: Install Poetry
+      # SAVVY: cache-hit either 'true' or empty string (which makes it truthy-falsey).
+      if: ${{ steps.cached-poetry.outputs.cache-hit != 'true' }}
+      uses: snok/install-poetry@v1
+      with:
+        # Use a local virtual env so we can easily cache it.
+        virtualenvs-create: true
+        # Whether to use local .venv/ dir. vs. OS-dependent, e.g., under ~/.local/
+        virtualenvs-in-project: true
+        # Defaults:
+        #   version: latest
+        #   virtualenvs-create: true
+        #   virtualenvs-in-project: false
+        #   virtualenvs-path: {cache-dir}/virtualenvs
+        #   installer-parallel: true
+
+    - if: ${{ steps.cached-poetry.outputs.cache-hit == 'true' }}
+      shell: bash
+      run: |
+        time_secs="$((
+          $(date +%s) - ${{ steps.start-clock-poetry.outputs.CLOCK_0 }}
+        ))"
+
+        # TIMED/2023-12-26: With cache hit: Ubuntu: 11s. Windows: 16s.
+        echo "time-secs: ${time_secs} secs. [1: snok/install-poetry]"
+
+        # ***
+
+        # export PATH for `poetry` to work in this composite step.
+        # - Append $GITHUB_PATH for `poetry` to work in later steps
+        #   (i.e., from the caller after this composite completes).
+
+        # Ensure PATH includes `poetry` for steps after this composite step.
+        echo "${POETRY_BASE}/bin" >> "${GITHUB_PATH}"
+
+        # SAVVY: On Windows, PATH should use Linux-style seps.
+        # - So this is wrong:
+        #     export PATH="${POETRY_BASE}/bin:${PATH}"
+        export PATH="${HOME}/.local/bin:${PATH}"
+
+        # ***
+
+        # Configure poetry how snok/install-poetry does it.
+        #
+        # - Note that "{cache-dir}" is Poetry magic, e.g.,:
+        #
+        #     $ poetry config virtualenvs.path "{cache-dir}/virtualenvs"
+        #
+        #     $ poetry config virtualenvs.path
+        #     /home/user/.cache/pypoetry/virtualenvs
+
+        poetry config virtualenvs.create true
+        poetry config virtualenvs.in-project true
+        poetry config virtualenvs.path "{cache-dir}/virtualenvs"
+
+    # ***
+
+    - name: Cache analysis — snok/install-poetry
+      shell: bash
+      run: |
+        time_secs="$((
+          $(date +%s) - ${{ steps.start-clock-poetry.outputs.CLOCK_0 }}
+        ))"
+
+        # TIMED/2023-12-26: Without cache hit: Ubuntu: 14s, 18s.
+        #   Darwin: 33s. Windows: 27s, 32s, 45s.
+        echo "time-secs: ${time_secs} secs. [2: snok/install-poetry]"
+
+        echo "cache-hit: ${{ steps.cached-poetry.outputs.cache-hit }}"
+
+    # ***
+
+    - id: start-clock-venv
+      shell: bash
+      run: echo "CLOCK_0=$(date +%s)" >> "${GITHUB_OUTPUT}"
+
+    # SAVVY/2023-12-25 05:44: GHA clears cache after 7 days, and after 10 GB.
+
+    # ALERT: poetry-install must follow cache call. On a cache miss:
+    # - "The cache action completes and the next step in the job runs."
+    # - "If the job completes successfully, the action automatically
+    #    creates a new cache with the contents of the path directory."
+    # So it's only the following job's result that gets cached, GTK.
+    # REFER:
+    # https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows#cache-hits-and-misses
+    # DUNNO: Though it really might not matter. The 'Post' job might end
+    #        up caching the final result after all steps complete (also
+    #        the composite action runs as a single step; so I bet the
+    #        final result is what's cached, and not just the subsequent
+    #        step).
+    #        - DUNNO: But this would affect the final root project
+    #        `poetry install --no-interaction`, which I think is
+    #        meant *not* to be cached.
+
+    - name: Load cached venv
+      id: load-cached-venv
+      if: ${{ (false
+               || inputs.poetry-install-with != ''
+               || inputs.poetry-install-extras != ''
+               || inputs.poetry-install-root != 'false')
+              && inputs.disable-cache == 'false' }}
+      # CXREF: https://github.com/actions/cache
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os
+          }}-${{ github.job
+          }}-${{ steps.setup-python.outputs.python-version
+          }}-${{ hashFiles('poetry.lock')
+          }}
+
+    - name: Install dependencies (& populate cache)
+      if: ${{ (false
+               || inputs.poetry-install-with != ''
+               || inputs.poetry-install-extras != ''
+               || inputs.poetry-install-root != 'false')
+              && steps.load-cached-venv.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        if false \
+          || [ "${POETRY_INSTALL_WITH}" = "dist,project_dist" ] \
+          || [ "${POETRY_INSTALL_WITH}" = "test,project_test" ] \
+        ; then
+          # Installs to .venv/lib/pythonX.X/site-packages/
+          poetry self add "poetry-dynamic-versioning[plugin]"
+        fi
+
+        with=""
+        if [ -n "${POETRY_INSTALL_WITH}" ]; then
+          with="--with ${POETRY_INSTALL_WITH}"
+        fi
+
+        extras=""
+        if [ -n "${POETRY_INSTALL_EXTRAS}" ]; then
+          extras="--extras ${POETRY_INSTALL_EXTRAS}"
+        fi
+
+        echo "poetry install --no-interaction --no-root ${with} ${extras}"
+
+        poetry install --no-interaction --no-root ${with} ${extras}
+        # OUTPUT, e.g.,: Creating virtualenv easy-as-pypi in
+        #                 /home/runner/work/easy-as-pypi/easy-as-pypi/.venv
+      env:
+        POETRY_INSTALL_WITH: ${{ inputs.poetry-install-with }}
+        POETRY_INSTALL_EXTRAS: ${{ inputs.poetry-install-extras }}
+
+    # ***
+
+    - name: Cache analysis — poetry-install
+      shell: bash
+      run: |
+        time_secs="$(($(date +%s) - ${{ steps.start-clock-venv.outputs.CLOCK_0 }}))"
+
+        # TIMED/2023-12-26: Without cache hit: Ubuntu: 5s, 6s.
+        # TIMED/2023-12-26: With cache hit: Darwin: 2s. Windows: 3s.
+        echo "time-secs: ${time_secs} secs. [poetry-install]"
+
+        echo "...outputs.cache-hit: ${{ steps.load-cached-venv.outputs.cache-hit }}"
+
+    # ***
+
+    # DUNNO: In the snok/install-poetry example, this step split-out from
+    #        the previous step. If the docs are correct, this step is not
+    #        cached, because only the step after the cache check is what's
+    #        saved.
+    #        - But I'm suspect of that understanding, because there's a
+    #          "Post" job that runs, and I bet it saves the cache.
+    #        - So I but this step always runs so that if there was a
+    #          cache hit, and if this app's pkg was previously cached,
+    #          then this'll ensure it's always updated.
+    - name: Install root project
+      if: ${{ inputs.poetry-install-root != 'false' }}
+      shell: bash
+      run: |
+        echo "poetry install --no-interaction"
+        poetry install --no-interaction
+
+    # ***

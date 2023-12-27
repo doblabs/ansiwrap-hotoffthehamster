@@ -648,6 +648,7 @@ EDITABLE_PJS = \
 	birdseye \
 	\
 	ansi-escape-room \
+	ansiwrap-hotoffthehamster \
 	click-hotoffthehamster \
 	click-hotoffthehamster-alias \
 	config-decorator \
