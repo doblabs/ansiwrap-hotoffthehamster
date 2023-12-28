@@ -40,6 +40,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Check if this a pre-release update-deps.yml build, e.g., named like
+  # 'update-deps/202312272030/1936e56ca9e6' and with alpha CI taggage.
+  check-if-prerelease:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if prerelease
+        id: check-if-prerelease
+        run: |
+          is_prerelease=false
+
+          if [ -n "$(
+            gh pr list \
+              --state open \
+              --label poetry.lock \
+              --label ci-version-alpha \
+              --head '${{ github.ref_name }}'
+            )" \
+          ]; then
+            is_prerelease=true
+          fi
+
+          echo "is_prerelease=${is_prerelease}"
+
+          echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    outputs:
+      is_prerelease: ${{ steps.check-if-prerelease.outputs.is_prerelease }}
+
   branch-checks-runner:
+    needs: check-if-prerelease
     uses: ./.github/workflows/checks.yml
     secrets: inherit
+    with:
+      prerelease: ${{ needs.check-if-prerelease.outputs.is_prerelease == 'true' }}
+
+  # ***

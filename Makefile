@@ -659,6 +659,7 @@ EDITABLE_PJS = \
 	easy-as-pypi-termio \
 	human-friendly_pedantic-timedelta \
 	pep440-version-compare-cli \
+	python-editor-hotoffthehamster \
 	sqlalchemy-migrate-hotoffthehamster \
 	tempita-hotoffthehamster \
 	\

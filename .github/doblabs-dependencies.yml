@@ -89,6 +89,13 @@ doblabs/human-friendly_pedantic-timedelta:
   # - doblabs/dob
   - doblabs/nark
 
+doblabs/python-editor-hotoffthehamster:
+  # Upstream deps:
+  # - No doblabs deps.
+  # Downstream deps:
+  # - doblabs/dob-bright
+  - doblabs/dob-bright
+
 doblabs/sqlalchemy-migrate-hotoffthehamster:
   # Upstream deps:
   # - doblabs/tempita-hotoffthehamster
