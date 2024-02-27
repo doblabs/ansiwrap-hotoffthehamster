@@ -82,6 +82,8 @@ jobs:
       # REFER: GITHUB_REF is the branch ref or tag that triggered the workflow run.
       # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
       - name: Probe version tag (not workflow_dispatch)
+        if: github.event_name != 'workflow_dispatch'
+        shell: bash
         run: |
           VERSION_TAG="${GITHUB_REF#refs/tags/}"
 
@@ -100,21 +102,19 @@ jobs:
           fi
 
           echo "VERSION_TAG=${VERSION_TAG}" >> "${GITHUB_ENV}"
-        shell: bash
-        if: github.event_name != 'workflow_dispatch'
 
       - name: Checkout repository (not workflow_dispatch)
-        uses: actions/checkout@v4
         if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v4
 
       - name: Checkout repository (is workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
           # Grab everything, because we might need to switch branches
           # in the next step.
           fetch-depth: 0
-        if: github.event_name == 'workflow_dispatch'
 
       # Check the default branch HEAD for a version tag.
       # - If it's not found, try the pre-release branch.
@@ -198,8 +198,8 @@ jobs:
       #     ~/.kit/sh/sh-git-nubs/bin/git-nubs.sh
       #       git_latest_version_tag
       - name: Fail if VERSION_TAG undiscoverable
-        run: exit 1
         if: env.VERSION_TAG == ''
+        run: exit 1
 
       # Double-check tag is version-formatted, esp. if 'workflow_dispatch'
       # (which got whatever was tagged on HEAD).
@@ -221,6 +221,7 @@ jobs:
         shell: bash
 
       - name: Set pipx index URL
+        shell: bash
         run: |
           test_pypi_url="https://test.pypi.org/simple"
           # REFER: https://packaging.python.org/en/latest/guides/using-testpypi/
@@ -246,7 +247,6 @@ jobs:
             && index_url_pipx="" \
             || index_url_pipx="--index-url ${test_pypi_url} ${pipx_pip_args}"
           echo INDEX_PIPX=${index_url_pipx} >> "${GITHUB_ENV}"
-        shell: bash
 
       # MAYBE/2023-11-11: Prefer `fromJSON(shell-bool)` vs. `== 'true|false'`?
       - name: Announcement — ${{
@@ -261,8 +261,8 @@ jobs:
 
       # github.repository is, e.g.,"doblabs/easy-as-pypi".
       - name: Probe package name
-        run: echo "PACKAGE_NAME=$(basename ${{ github.repository }})" >> "${GITHUB_ENV}"
         shell: bash
+        run: echo "PACKAGE_NAME=$(basename ${{ github.repository }})" >> "${GITHUB_ENV}"
 
       # # Local, and GHA: 1.2.0.
       # - name: pipx --version
@@ -271,22 +271,22 @@ jobs:
 
       # On GHA: pipx: error: unrecognized arguments: easy-as-pypi==1.1.1a20
       - name: Check if previously released
+        shell: bash
         run: |
           IS_RELEASED=false
           echo "pip install ${INDEX_PIP} ${PACKAGE_NAME}==${VERSION}"
           pip install ${INDEX_PIP} ${PACKAGE_NAME}==${VERSION} \
             && IS_RELEASED=true
           echo "IS_RELEASED=${IS_RELEASED}" >> "${GITHUB_ENV}"
-        shell: bash
 
       # Determine if previously released (and skip re-releasing if so).
       - name: View release
+        if: env.IS_RELEASED == 'true'
         run: |
           echo "gh release view ${VERSION_TAG}"
           gh release view ${VERSION_TAG}
         env:
           GH_TOKEN: ${{ github.token }}
-        if: env.IS_RELEASED == 'true'
 
       # Here's how you might publish using Poetry, but this approach
       # requires a PyPI token.
@@ -363,20 +363,17 @@ jobs:
 
   wrangle-ci-tags:
     name: Wrangle (read) CI tags
-    uses: ./.github/workflows/ci-tags-wrangle.yml
     needs: [prepare-publish]
     if: ${{ ! cancelled()
       && needs.prepare-publish.result == 'success'
       && needs.prepare-publish.outputs.IS_RELEASED == 'false' }}
+    uses: ./.github/workflows/ci-tags-wrangle.yml
     with:
       prerelease: ${{ needs.prepare-publish.outputs.PRERELEASE == 'true' }}
 
   # ***
 
   poetry-publish:
-
-    runs-on: ubuntu-latest
-
     needs: [prepare-publish, wrangle-ci-tags]
 
     # Easiest approach would be to skip if IS_RELEASED, e.g.,
@@ -389,6 +386,8 @@ jobs:
       && needs.prepare-publish.result == 'success'
       && needs.prepare-publish.outputs.IS_RELEASED == 'false'
       && needs.wrangle-ci-tags.outputs.old-inhibit-release-pypi == 'false' }}
+
+    runs-on: ubuntu-latest
 
     # CXREF: PyPI recommends using an environment ('release')
     #        to keep non-admin organization members from publishing.
@@ -460,9 +459,6 @@ jobs:
       #   https://github.com/pypa/gh-action-pypi-publish
 
       - name: Publish package distributions to test.PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
         # Only publish pre-release packages to test.PyPI.
         #
         # - It's not prudent to publish normal packages to test.PyPI,
@@ -481,12 +477,15 @@ jobs:
         # - So for either type or release cascade, whether 'alpha'
         #   or 'patch', we always publish to the same package index.
         if: env.PRERELEASE == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
 
       - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
         # Unlike test.PyPI, only publish normal releases to PyPI proper,
         # never alphas.
         if: env.PRERELEASE == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
 
   # ***
 
@@ -512,9 +511,9 @@ jobs:
       #   immediately, but it takes a bit for pip to find it (~12 sec).
       # - SAVVY/2023-10-08: Huh, 17s not always enough?
       - name: Sleep for 13 seconds
-        run: sleep 13s
-        shell: bash
         if: needs.prepare-publish.outputs.IS_RELEASED == 'false'
+        shell: bash
+        run: sleep 13s
 
   # ***
 

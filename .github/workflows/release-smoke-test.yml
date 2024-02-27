@@ -33,12 +33,9 @@ on:
 # ***
 
 env:
-  # Lest: "The `python-version` input is not set. The version
-  #        of Python currently in `PATH` will be used." and
-  #       "Cache paths are empty. Please check the previous
-  #        logs and make sure that the python version is specified"
-  # TRACK: https://github.com/actions/python-versions/releases
-  # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
+  # USYNC: When you update Python versions, update the following:
+  #   workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER)
+  # - REFER: Track versions at https://github.com/actions/python-versions/releases
   # BWARE: Trailing zeroes disappear unless quoted.
   PYTHON_VERSION: "3.11"
 

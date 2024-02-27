@@ -33,7 +33,7 @@ VENV_NAME ?= .venv-$(PACKAGE_NAME)
 
 # USYNC: workflows/ (PYTHON_VERSION), tox.ini (basepython), Makefile (VENV_PYVER).
 # - The "editable" virtualenv Python version (`make develop`).
-VENV_PYVER ?= 3.11
+VENV_PYVER ?= 3.12.2
 
 # Additional `python -m venv` options.
 #

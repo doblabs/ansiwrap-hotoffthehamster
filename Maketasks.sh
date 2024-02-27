@@ -32,10 +32,6 @@ make_develop () {
 
   _pyenv_prepare_shell "${VENV_PYVER}"
 
-  # Support `workon` from https://github.com/landonb/virtualenvwrapper
-  # from all pyenv envs.
-  pip install virtualenvwrapper
-
   # IGNOR: This fcn. sets VENV_CREATED
   _venv_manage_and_activate "${VENV_NAME}" "${VENV_ARGS}" "" "${VENV_NAME}"
 
@@ -621,6 +617,15 @@ _pyenv_prepare_shell () {
   pyenv install -s ${venv_pyver}
 
   pyenv shell ${venv_pyver}
+
+  # Support `workon` from https://github.com/landonb/virtualenvwrapper
+  # from all pyenv envs.
+  vew_fork="${VENV_WRAP:-${DOPP_KIT:-${HOME}/.kit}/py/virtualenvwrapper}"
+  if [ -d "${vew_fork}" ]; then
+    pip install ${vew_fork}
+  else
+    pip install virtualenvwrapper
+  fi
 }
 
 _venv_manage_and_activate () {
