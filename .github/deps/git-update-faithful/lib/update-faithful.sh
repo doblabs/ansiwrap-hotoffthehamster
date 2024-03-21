@@ -71,7 +71,7 @@ source_dep_git_put_wise () {
   command -v git-put-wise > /dev/null \
     || return 0
 
-  local put_wise_bin="$(dirname "$(realpath "$(command -v git-put-wise)")")"
+  local put_wise_bin="$(dirname -- "$(realpath -- "$(command -v git-put-wise)")")"
 
   # CXREF: https://github.com/landonb/sh-git-nubs#🌰
   #   ~/.kit/sh/sh-git-nubs/bin/git-nubs.sh
@@ -98,17 +98,17 @@ source_dep () {
 
   # The executables are at bin/*, so project root is one level up.
   local project_root
-  project_root="$(dirname "$(realpath "$0")")/.."
+  project_root="$(dirname -- "$(realpath -- "$0")")/.."
 
   local try_prj_root="${project_root}"
   local try_dep_path="${try_prj_root}/${dep_path}"
 
   # Walkie talkie die hard.
   while [ ! -f "${try_dep_path}" ]; do
-    test "$(dirname "${try_prj_root}")" = "${try_prj_root}" \
+    test "$(dirname -- "${try_prj_root}")" = "${try_prj_root}" \
       && break
 
-    try_prj_root="$(dirname "${try_prj_root}")"
+    try_prj_root="$(dirname -- "${try_prj_root}")"
     try_dep_path="${try_prj_root}/${dep_path}"
   done
 
@@ -117,7 +117,7 @@ source_dep () {
     if $(printf %s "$0" | grep -q -E '(^-?|\/)(ba|da|fi|z)?sh$' -); then
       if [ -n "${BASH_SOURCE[0]}" ]; then
         # The lib is at lib/update-faithful.sh so project root is one level up.
-        project_root="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.."
+        project_root="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")/.."
         try_dep_path="${project_root}/${dep_path}"
       fi
     fi
@@ -246,9 +246,9 @@ must_pass_checks_and_ensure_cache () {
 
     # For template render or canon copy, ensure directory path exists.
     local local_base
-    local_base="$(dirname "${local_file}")"
+    local_base="$(dirname -- "${local_file}")"
 
-    command mkdir -p "${local_base}"
+    mkdir -p "${local_base}"
   fi
 }
 
@@ -426,7 +426,7 @@ print_head_sha () {
   local use_scoping="${2:-false}"
 
   (
-    cd "$(dirname "${any_repo_file_path}")"
+    cd "$(dirname -- "${any_repo_file_path}")"
 
     local canon_head="HEAD"
 
@@ -509,7 +509,7 @@ cache_file_ensure_exists () {
     cache_file_cleanup
   fi
 
-  local cache_dir="$(dirname "${UPDEPS_CACHE_FILE}")"
+  local cache_dir="$(dirname -- "${UPDEPS_CACHE_FILE}")"
 
   if [ ! -d "${cache_dir}" ]; then
     >&2 error "ERROR: Cache file directory is absent."
@@ -518,7 +518,7 @@ cache_file_ensure_exists () {
     exit 1
   fi
 
-  touch "${UPDEPS_CACHE_FILE}"
+  touch -- "${UPDEPS_CACHE_FILE}"
 }
 
 cache_file_nonempty () {
@@ -527,7 +527,7 @@ cache_file_nonempty () {
 
 cache_file_cleanup () {
   # Verify is a partial path name.
-  if [ -d "$(dirname "${UPDEPS_CACHE_BASE}")" ] \
+  if [ -d "$(dirname -- "${UPDEPS_CACHE_BASE}")" ] \
     && [ ! -e "${UPDEPS_CACHE_BASE}" ] \
   ; then
     command rm -f "${UPDEPS_CACHE_BASE}"*
@@ -623,7 +623,7 @@ canon_path_show_at_canon_head () {
   local canon_head="$3"
   local dest_file="$4"
 
-  cd "$(dirname "${canon_file_absolute}")"
+  cd "$(dirname -- "${canon_file_absolute}")"
 
   # Note that git-show uses the root-relative path, regardless of curr. dir.
   git show ${canon_head}:"${canon_file_relative}" > "${dest_file}"
@@ -686,7 +686,7 @@ update_local_from_canon () {
   print_help_indented_scoped_meld () {
     # This is not a simple "meld \"${local_file}\" \"${canon_file_absolute}\" &"
     # because we need the scoped version of the canon file.
-    printf "%s"                      "( cd \"$(dirname "${canon_file_absolute}")\" \\
+    printf "%s"                      "( cd \"$(dirname -- "${canon_file_absolute}")\" \\
                                         && meld \\
                                             <(git show ${short_head}:\"${canon_file_relative}\") \\
                                             \"$(pwd)/${local_file}\") &"
@@ -983,7 +983,7 @@ print_canon_base_absolute () {
   local canon_file_absolute="$1"
 
   (
-    cd "$(dirname "${canon_file_absolute}")"
+    cd "$(dirname -- "${canon_file_absolute}")"
 
     git_project_root_absolute
   )
@@ -1164,7 +1164,7 @@ render_template_localize_sources () {
     chosen_canon_head="${follower_head}"
   fi
 
-  command mkdir -p "$(dirname "${tmp_tmpl_absolute}")"
+  mkdir -p "$(dirname -- "${tmp_tmpl_absolute}")"
 
   canon_path_show_at_canon_head \
     "${chosen_tmpl_path}" \
@@ -1214,7 +1214,7 @@ render_template_localize_sources () {
         chosen_canon_head="${follower_head}"
       fi
 
-      command mkdir -p "$(dirname "${tmp_child_absolute}")"
+      mkdir -p "$(dirname -- "${tmp_child_absolute}")"
 
       canon_path_show_at_canon_head \
         "${chosen_tmpl_path}" \
@@ -1453,7 +1453,7 @@ update_faithfuls_commit_changes () {
   local sourcerer="$3"
   local commit_subject="$4"
 
-  local canon_project="$(basename "${canon_base_absolute}")"
+  local canon_project="$(basename -- "${canon_base_absolute}")"
 
   if [ -z "${commit_subject}" ]; then
     commit_subject="${UPDEPS_GENERIC_COMMIT_SUBJECT} <${canon_project}>"
